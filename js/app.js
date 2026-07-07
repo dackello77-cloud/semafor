@@ -2084,16 +2084,16 @@ async function registerPwaPushNotifications() {
   pwaPushButton.disabled = true;
 
   try {
-    const registration = await getPwaServiceWorkerRegistration();
-
-    if (!registration) {
-      throw new Error("Service worker is not available.");
-    }
-
     const permission = await Notification.requestPermission();
 
     if (permission !== "granted") {
       return;
+    }
+
+    const registration = await getPwaServiceWorkerRegistration();
+
+    if (!registration) {
+      throw new Error("Service worker is not available.");
     }
 
     const publicKey = await getWebPushPublicKey();
