@@ -2,6 +2,14 @@
 
 Remote push is required when the customer app is closed. Local notifications only work after the app has already received the event.
 
+For iPhone Home Screen web apps, Web Push also requires:
+
+- `manifest.webmanifest`
+- `sw.js`
+- HTTPS hosting
+- iOS 16.4+
+- user tapping the notification button in the customer screen
+
 ## 1. Database
 
 Run `supabase_schema.sql` again in Supabase SQL editor. It creates:
@@ -24,6 +32,20 @@ supabase secrets set APNS_KEY_ID='YOUR_APNS_KEY_ID'
 supabase secrets set APNS_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
 supabase secrets set APNS_BUNDLE_ID='com.semafor.customer'
 supabase secrets set APNS_USE_SANDBOX='true'
+```
+
+For Home Screen PWA push, generate VAPID keys:
+
+```bash
+npm run vapid:keys
+```
+
+Then set the generated values:
+
+```bash
+supabase secrets set WEB_PUSH_VAPID_PUBLIC_KEY='...'
+supabase secrets set WEB_PUSH_VAPID_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
+supabase secrets set WEB_PUSH_VAPID_SUBJECT='mailto:you@example.com'
 ```
 
 Use `APNS_USE_SANDBOX=false` for TestFlight/App Store builds.

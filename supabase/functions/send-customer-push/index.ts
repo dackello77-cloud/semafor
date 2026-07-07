@@ -3,12 +3,23 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 type PushToken = {
   token: string;
   platform: "android" | "ios" | string;
+  subscription?: WebPushSubscription | null;
 };
 
 type PushPayload = {
+  action?: "web-push-config";
   phoneLast7: string;
   title: string;
   body: string;
+};
+
+type WebPushSubscription = {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
 };
 
 const corsHeaders = {
@@ -24,6 +35,17 @@ Deno.serve(async (request) => {
 
   try {
     const payload = (await request.json()) as PushPayload;
+
+    if (payload.action === "web-push-config") {
+      const publicKey = Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY") || "";
+
+      if (!publicKey) {
+        return json({ error: "Missing WEB_PUSH_VAPID_PUBLIC_KEY" }, 500);
+      }
+
+      return json({ publicKey });
+    }
+
     const phoneLast7 = String(payload.phoneLast7 || "").replace(/\D/g, "").slice(-7);
 
     if (!phoneLast7 || !payload.title || !payload.body) {
@@ -37,7 +59,7 @@ Deno.serve(async (request) => {
 
     const { data, error } = await supabase
       .from("semafor_push_tokens")
-      .select("token, platform")
+      .select("token, platform, subscription")
       .eq("phone_last7", phoneLast7);
 
     if (error) throw error;
@@ -64,6 +86,81 @@ async function sendPush(token: PushToken, title: string, body: string) {
   if (token.platform === "ios") {
     return sendApns(token.token, title, body);
   }
+
+  if (token.platform === "web" && token.subscription) {
+    return sendWebPush(token.subscription, title, body);
+  }
+}
+
+async function sendWebPush(subscription: WebPushSubscription, title: string, body: string) {
+  const publicKey = Deno.env.get("WEB_PUSH_VAPID_PUBLIC_KEY");
+  const privateKey = Deno.env.get("WEB_PUSH_VAPID_PRIVATE_KEY");
+  const subject = Deno.env.get("WEB_PUSH_VAPID_SUBJECT") || "mailto:admin@example.com";
+
+  if (!publicKey || !privateKey) {
+    throw new Error("Missing WEB_PUSH_VAPID_PUBLIC_KEY or WEB_PUSH_VAPID_PRIVATE_KEY");
+  }
+
+  const endpoint = new URL(subscription.endpoint);
+  const aud = endpoint.origin;
+  const jwt = await signJwt(
+    { alg: "ES256", typ: "JWT" },
+    {
+      aud,
+      exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+      sub: subject,
+    },
+    privateKey,
+    "ECDSA",
+  );
+  const encrypted = await encryptWebPushPayload(
+    JSON.stringify({
+      title,
+      body,
+      url: "./index.html",
+    }),
+    subscription,
+  );
+
+  const response = await fetch(subscription.endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `vapid t=${jwt}, k=${publicKey}`,
+      "Content-Encoding": "aes128gcm",
+      "Content-Type": "application/octet-stream",
+      TTL: "2419200",
+      Urgency: "high",
+    },
+    body: encrypted,
+  });
+
+  if (!response.ok && response.status !== 404 && response.status !== 410) {
+    throw new Error(`Web Push failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+async function encryptWebPushPayload(payload: string, subscription: WebPushSubscription) {
+  const receiverPublicKey = base64UrlToUint8Array(subscription.keys.p256dh);
+  const authSecret = base64UrlToUint8Array(subscription.keys.auth);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const senderKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const senderPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", senderKeys.publicKey));
+  const receiverKey = await crypto.subtle.importKey("raw", receiverPublicKey, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const sharedSecret = new Uint8Array(
+    await crypto.subtle.deriveBits({ name: "ECDH", public: receiverKey }, senderKeys.privateKey, 256),
+  );
+  const authInfo = concatUint8Arrays(utf8("WebPush: info\0"), receiverPublicKey, senderPublicKey);
+  const prk = await hkdfExtract(authSecret, sharedSecret);
+  const ikm = await hkdfExpand(prk, authInfo, 32);
+  const cek = await hkdf(salt, ikm, utf8("Content-Encoding: aes128gcm\0"), 16);
+  const nonce = await hkdf(salt, ikm, utf8("Content-Encoding: nonce\0"), 12);
+  const plaintext = concatUint8Arrays(utf8(payload), new Uint8Array([2]));
+  const key = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, plaintext));
+  const recordSize = new Uint8Array([0, 0, 16, 0]);
+  const keyLength = new Uint8Array([senderPublicKey.length]);
+
+  return concatUint8Arrays(salt, recordSize, keyLength, senderPublicKey, ciphertext);
 }
 
 async function sendFcm(token: string, title: string, body: string) {
@@ -174,6 +271,64 @@ async function sendApns(token: string, title: string, body: string) {
   if (!response.ok) {
     throw new Error(`APNs failed: ${response.status} ${await response.text()}`);
   }
+}
+
+function utf8(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+function concatUint8Arrays(...arrays: Uint8Array[]) {
+  const length = arrays.reduce((sum, array) => sum + array.length, 0);
+  const output = new Uint8Array(length);
+  let offset = 0;
+
+  arrays.forEach((array) => {
+    output.set(array, offset);
+    offset += array.length;
+  });
+
+  return output;
+}
+
+function base64UrlToUint8Array(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+async function hmac(keyBytes: Uint8Array, data: Uint8Array) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
+}
+
+async function hkdfExtract(salt: Uint8Array, ikm: Uint8Array) {
+  return hmac(salt, ikm);
+}
+
+async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number) {
+  const blocks: Uint8Array[] = [];
+  let previous = new Uint8Array();
+  let blockIndex = 1;
+
+  while (blocks.reduce((sum, block) => sum + block.length, 0) < length) {
+    previous = await hmac(prk, concatUint8Arrays(previous, info, new Uint8Array([blockIndex])));
+    blocks.push(previous);
+    blockIndex += 1;
+  }
+
+  return concatUint8Arrays(...blocks).slice(0, length);
+}
+
+async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, length: number) {
+  return hkdfExpand(await hkdfExtract(salt, ikm), info, length);
 }
 
 async function signJwt(

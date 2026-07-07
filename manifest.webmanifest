@@ -1,0 +1,19 @@
+{
+  "id": "index.html",
+  "name": "Semafor Customer",
+  "short_name": "Semafor",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#020718",
+  "theme_color": "#020718",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "assets/app-icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

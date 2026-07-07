@@ -59,7 +59,8 @@ button {
 }
 
 .logout-btn,
-.camera-btn {
+.camera-btn,
+.push-btn {
   border: 0;
   border-radius: 8px;
   background: var(--button);
@@ -69,7 +70,8 @@ button {
 }
 
 .logout-btn:hover,
-.camera-btn:hover {
+.camera-btn:hover,
+.push-btn:hover {
   background: var(--button-hover);
 }
 
@@ -99,11 +101,59 @@ button {
   font-size: 13px;
 }
 
-.camera-btn {
+.customer-topbar-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.camera-btn,
+.push-btn {
   width: 42px;
   height: 38px;
   display: grid;
   place-items: center;
+}
+
+.push-btn.is-enabled {
+  background: #1f7a4f;
+}
+
+.push-btn.is-unavailable {
+  opacity: 0.45;
+}
+
+.push-icon {
+  position: relative;
+  width: 17px;
+  height: 18px;
+  border: 2px solid #ffffff;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  border-bottom: 0;
+}
+
+.push-icon::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 20px;
+  height: 2px;
+  border-radius: 999px;
+  background: #ffffff;
+  transform: translateX(-50%);
+}
+
+.push-icon::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 6px;
+  height: 3px;
+  border-radius: 0 0 999px 999px;
+  background: #ffffff;
+  transform: translateX(-50%);
 }
 
 .camera-icon {

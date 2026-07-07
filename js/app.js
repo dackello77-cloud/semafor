@@ -72,6 +72,7 @@ const customerScreen = document.querySelector("#customer-screen");
 const adminLogout = document.querySelector("#admin-logout");
 const customerLogout = document.querySelector("#customer-logout");
 const cameraButton = document.querySelector("#camera-btn");
+const pwaPushButton = document.querySelector("#pwa-push-btn");
 const cameraInput = document.querySelector("#camera-input");
 const customerCode = document.querySelector("#customer-code");
 const optionsCode = document.querySelector("#options-code");
@@ -108,6 +109,7 @@ const bolViewer = document.querySelector("#bol-viewer");
 const bolViewerTitle = document.querySelector("#bol-viewer-title");
 const bolViewerCount = document.querySelector("#bol-viewer-count");
 const bolViewerImage = document.querySelector("#bol-viewer-image");
+const bolViewerMessage = document.querySelector("#bol-viewer-message");
 const bolViewerImageWrap = document.querySelector(".bol-viewer-image-wrap");
 const bolViewerClose = document.querySelector("#bol-viewer-close");
 const bolPrev = document.querySelector("#bol-prev");
@@ -126,9 +128,13 @@ const editVehicleForm = document.querySelector("#edit-vehicle-form");
 const adminForm = document.querySelector("#admin-form");
 const passwordForm = document.querySelector("#password-form");
 let contextTarget = null;
-let currentBolImages = [];
-let currentBolImageIndex = 0;
+let currentBolViewerDocuments = [];
+let currentBolViewerIndex = 0;
 let currentBolZoom = 1;
+let currentBolViewerCanZoom = false;
+let currentBolRenderRequestId = 0;
+let pdfJsPromise = null;
+let pwaPushRegistrationStarted = false;
 
 configureNativeCustomerApp();
 
@@ -167,6 +173,12 @@ loginForm.addEventListener("submit", (event) => {
 
 adminLogout.addEventListener("click", logout);
 customerLogout.addEventListener("click", logout);
+pwaPushButton.addEventListener("click", () => {
+  registerPwaPushNotifications().catch((error) => {
+    console.warn("Web push registration failed:", error.message || error);
+    updatePwaPushButtonState();
+  });
+});
 customerScreen.addEventListener("pointerdown", unlockCustomerAudio, { passive: true });
 customerScreen.addEventListener("keydown", unlockCustomerAudio);
 
@@ -341,26 +353,41 @@ document.addEventListener("click", (event) => {
 });
 
 bolList.addEventListener("click", (event) => {
-  const preview = event.target.closest("[data-bol-image-index]");
+  const preview = event.target.closest("[data-bol-document-index]");
 
   if (!preview) return;
 
-  openBolImageViewer(Number(preview.dataset.bolImageIndex));
+  openBolDocumentViewer(Number(preview.dataset.bolDocumentIndex));
 });
 
-bolViewerClose.addEventListener("click", closeBolImageViewer);
+bolList.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+
+  const preview = event.target.closest("[data-bol-document-index]");
+
+  if (!preview) return;
+
+  event.preventDefault();
+  openBolDocumentViewer(Number(preview.dataset.bolDocumentIndex));
+});
+
+bolViewerClose.addEventListener("click", closeBolDocumentViewer);
 bolPrev.addEventListener("click", () => {
-  if (currentBolImageIndex < currentBolImages.length - 1) {
-    showBolImage(currentBolImageIndex + 1);
+  if (currentBolViewerIndex < currentBolViewerDocuments.length - 1) {
+    showBolDocument(currentBolViewerIndex + 1);
   }
 });
 bolNext.addEventListener("click", () => {
-  if (currentBolImageIndex > 0) {
-    showBolImage(currentBolImageIndex - 1);
+  if (currentBolViewerIndex > 0) {
+    showBolDocument(currentBolViewerIndex - 1);
   }
 });
-bolZoomIn.addEventListener("click", () => setBolZoom(currentBolZoom + 0.15));
-bolZoomOut.addEventListener("click", () => setBolZoom(currentBolZoom - 0.15));
+bolZoomIn.addEventListener("click", () => {
+  if (currentBolViewerCanZoom) setBolZoom(currentBolZoom + 0.15);
+});
+bolZoomOut.addEventListener("click", () => {
+  if (currentBolViewerCanZoom) setBolZoom(currentBolZoom - 0.15);
+});
 
 function handleTaskBolRequestClick(button) {
   button.disabled = true;
@@ -414,31 +441,31 @@ document.querySelectorAll(".modal").forEach((modal) => {
 document.addEventListener("keydown", (event) => {
   if (!bolViewer.hidden) {
     if (event.key === "ArrowLeft") {
-      if (currentBolImageIndex < currentBolImages.length - 1) {
-        showBolImage(currentBolImageIndex + 1);
+      if (currentBolViewerIndex < currentBolViewerDocuments.length - 1) {
+        showBolDocument(currentBolViewerIndex + 1);
       }
       return;
     }
 
     if (event.key === "ArrowRight") {
-      if (currentBolImageIndex > 0) {
-        showBolImage(currentBolImageIndex - 1);
+      if (currentBolViewerIndex > 0) {
+        showBolDocument(currentBolViewerIndex - 1);
       }
       return;
     }
 
     if (event.key === "+" || event.key === "=") {
-      setBolZoom(currentBolZoom + 0.15);
+      if (currentBolViewerCanZoom) setBolZoom(currentBolZoom + 0.15);
       return;
     }
 
     if (event.key === "-") {
-      setBolZoom(currentBolZoom - 0.15);
+      if (currentBolViewerCanZoom) setBolZoom(currentBolZoom - 0.15);
       return;
     }
 
     if (event.key === "Escape") {
-      closeBolImageViewer();
+      closeBolDocumentViewer();
       return;
     }
   }
@@ -695,6 +722,10 @@ function showCustomer(phoneLast7) {
   timerCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
   loginError.textContent = "";
   requestNativeCustomerPermissionsOnce();
+  updatePwaPushButtonState();
+  syncExistingPwaPushSubscription().catch((error) => {
+    console.warn("Web push sync failed:", error.message || error);
+  });
   restoreCustomerTask();
 }
 
@@ -741,7 +772,7 @@ function openModal(modalId) {
 
 function closeModal(modal) {
   if (modal.id === "bol-modal") {
-    closeBolImageViewer();
+    closeBolDocumentViewer();
   }
 
   modal.classList.remove("is-open");
@@ -1173,19 +1204,19 @@ async function openBolDocumentsForTask(taskId) {
 }
 
 function renderBolDocumentsModal(docs) {
-  currentBolImages = docs.filter((document) => isImageFile(document.fileName || ""));
-  currentBolImageIndex = 0;
+  currentBolViewerDocuments = docs.filter((document) => isViewableBolDocument(document));
+  currentBolViewerIndex = 0;
   currentBolZoom = 1;
-  closeBolImageViewer();
+  closeBolDocumentViewer();
 
   bolList.innerHTML = docs.length
     ? docs
         .map((document) => {
-          const imageIndex = currentBolImages.findIndex((image) => image.id === document.id);
+          const documentIndex = currentBolViewerDocuments.findIndex((item) => item.id === document.id);
 
           return `
             <div class="bol-item">
-              ${renderBolPreview(document, imageIndex)}
+              ${renderBolPreview(document, documentIndex)}
               <div class="bol-item-meta">
                 <div>
                   <strong>${formatBolDocumentDate(document.createdAt)}</strong>
@@ -1206,7 +1237,7 @@ function renderBolDocumentsModal(docs) {
   openModal("bol-modal");
 }
 
-function renderBolPreview(document, imageIndex = -1) {
+function renderBolPreview(document, documentIndex = -1) {
   if (!document.fileUrl) {
     return `<div class="bol-preview bol-preview-empty">Local only</div>`;
   }
@@ -1216,50 +1247,85 @@ function renderBolPreview(document, imageIndex = -1) {
   const label = escapeAttribute(fileName || "BOL document");
 
   if (isImageFile(fileName)) {
-    return `<button class="bol-preview bol-preview-image" type="button" data-bol-image-index="${imageIndex}"><img src="${fileUrl}" alt="${label}" loading="lazy" referrerpolicy="no-referrer" /><span>Open image</span></button>`;
+    return `<button class="bol-preview bol-preview-image" type="button" data-bol-document-index="${documentIndex}"><img src="${fileUrl}" alt="${label}" loading="lazy" referrerpolicy="no-referrer" /><span>Open image</span></button>`;
   }
 
   if (isPdfFile(fileName)) {
     const pdfPreviewUrl = escapeAttribute(`${document.fileUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&page=1`);
-    return `<div class="bol-preview bol-preview-pdf"><iframe src="${pdfPreviewUrl}" title="${label}" loading="lazy"></iframe><span>PDF preview</span></div>`;
+    return `<div class="bol-preview bol-preview-pdf" role="button" tabindex="0" data-bol-document-index="${documentIndex}"><iframe src="${pdfPreviewUrl}" title="${label}" loading="lazy"></iframe><span>Open PDF</span></div>`;
   }
 
   return `<a class="bol-preview bol-preview-file" href="${fileUrl}" target="_blank" rel="noreferrer">FILE</a>`;
 }
 
-function openBolImageViewer(index) {
-  if (!currentBolImages.length || index < 0 || index >= currentBolImages.length) return;
+function openBolDocumentViewer(index) {
+  if (!currentBolViewerDocuments.length || index < 0 || index >= currentBolViewerDocuments.length) return;
 
-  showBolImage(index);
+  showBolDocument(index);
   bolViewer.hidden = false;
   bolViewer.closest(".modal-panel")?.classList.add("is-viewing-image");
 }
 
-function closeBolImageViewer() {
+function closeBolDocumentViewer() {
+  currentBolRenderRequestId += 1;
+  currentBolViewerCanZoom = false;
   bolViewer.hidden = true;
   bolViewer.closest(".modal-panel")?.classList.remove("is-viewing-image", "is-zoomed");
   bolViewerImage.removeAttribute("src");
   bolViewerImage.removeAttribute("style");
+  bolViewerImage.hidden = false;
+  bolViewerMessage.hidden = true;
+  bolViewerMessage.textContent = "";
+  bolZoomIn.disabled = true;
+  bolZoomOut.disabled = true;
 }
 
-function showBolImage(index) {
-  if (!currentBolImages.length) return;
+function showBolDocument(index) {
+  if (!currentBolViewerDocuments.length) return;
 
-  currentBolImageIndex = Math.min(currentBolImages.length - 1, Math.max(0, index));
+  currentBolViewerIndex = Math.min(currentBolViewerDocuments.length - 1, Math.max(0, index));
   currentBolZoom = 1;
+  currentBolRenderRequestId += 1;
+  const renderRequestId = currentBolRenderRequestId;
 
-  const document = currentBolImages[currentBolImageIndex];
-  bolViewerImage.onload = () => setBolZoom(currentBolZoom);
-  bolViewerImage.src = document.fileUrl;
-  bolViewerImage.alt = formatBolDocumentDate(document.createdAt);
+  const document = currentBolViewerDocuments[currentBolViewerIndex];
+  const fileName = document.fileName || "";
+  const isImage = isImageFile(fileName);
+
+  currentBolViewerCanZoom = false;
+  bolViewerImage.removeAttribute("style");
+  bolViewerImage.removeAttribute("src");
+  bolViewerImage.hidden = false;
+  bolViewerMessage.hidden = true;
+  bolViewerMessage.textContent = "";
+  bolZoomIn.disabled = true;
+  bolZoomOut.disabled = true;
+  bolViewer.closest(".modal-panel")?.classList.remove("is-zoomed");
+
+  if (isImage) {
+    currentBolViewerCanZoom = true;
+    bolZoomIn.disabled = false;
+    bolZoomOut.disabled = false;
+    bolViewerImage.onload = () => {
+      if (renderRequestId === currentBolRenderRequestId) setBolZoom(currentBolZoom);
+    };
+    bolViewerImage.src = document.fileUrl;
+    bolViewerImage.alt = formatBolDocumentDate(document.createdAt);
+  } else {
+    bolViewerImage.hidden = true;
+    showBolViewerMessage("Loading PDF preview...");
+    renderPdfFirstPage(document, renderRequestId);
+  }
+
   bolViewerTitle.textContent = formatBolDocumentDate(document.createdAt);
-  bolViewerCount.textContent = `${currentBolImageIndex + 1} / ${currentBolImages.length}`;
-  bolPrev.disabled = currentBolImageIndex >= currentBolImages.length - 1;
-  bolNext.disabled = currentBolImageIndex <= 0;
-  setBolZoom(currentBolZoom);
+  bolViewerCount.textContent = `${currentBolViewerIndex + 1} / ${currentBolViewerDocuments.length}`;
+  bolPrev.disabled = currentBolViewerIndex >= currentBolViewerDocuments.length - 1;
+  bolNext.disabled = currentBolViewerIndex <= 0;
 }
 
 function setBolZoom(zoom) {
+  if (!currentBolViewerCanZoom) return;
+
   const previousScrollWidth = Math.max(bolViewerImageWrap.scrollWidth, bolViewerImageWrap.clientWidth, 1);
   const previousScrollHeight = Math.max(bolViewerImageWrap.scrollHeight, bolViewerImageWrap.clientHeight, 1);
   const previousCenterX = (bolViewerImageWrap.scrollLeft + bolViewerImageWrap.clientWidth / 2) / previousScrollWidth;
@@ -1300,6 +1366,79 @@ function setBolZoom(zoom) {
       bolViewerImageWrap.scrollTop = Math.max(0, previousCenterY * nextScrollHeight - bolViewerImageWrap.clientHeight / 2);
     });
   });
+}
+
+async function renderPdfFirstPage(document, renderRequestId) {
+  try {
+    const pdfjsLib = await loadPdfJs();
+
+    if (renderRequestId !== currentBolRenderRequestId) return;
+
+    const pdf = await pdfjsLib.getDocument({ url: document.fileUrl }).promise;
+
+    if (renderRequestId !== currentBolRenderRequestId) {
+      pdf.destroy();
+      return;
+    }
+
+    const page = await pdf.getPage(1);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const targetWidth = Math.max(1200, Math.min(2400, Math.round(bolViewerImageWrap.clientWidth * 2)));
+    const viewport = page.getViewport({ scale: targetWidth / baseViewport.width });
+    const canvas = window.document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+
+    await page.render({ canvasContext: context, viewport }).promise;
+    pdf.destroy();
+
+    if (renderRequestId !== currentBolRenderRequestId) return;
+
+    bolViewerImage.onload = () => {
+      if (renderRequestId !== currentBolRenderRequestId) return;
+
+      currentBolViewerCanZoom = true;
+      bolZoomIn.disabled = false;
+      bolZoomOut.disabled = false;
+      setBolZoom(currentBolZoom);
+    };
+    bolViewerImage.alt = `${document.fileName || "BOL PDF"} - page 1`;
+    bolViewerImage.src = canvas.toDataURL("image/png");
+    bolViewerImage.hidden = false;
+    bolViewerMessage.hidden = true;
+    bolViewerMessage.textContent = "";
+  } catch (error) {
+    console.error("PDF preview failed", error);
+
+    if (renderRequestId !== currentBolRenderRequestId) return;
+
+    bolViewerImage.hidden = true;
+    showBolViewerMessage("PDF preview is not available. Use Open to view the file.");
+  }
+}
+
+async function loadPdfJs() {
+  if (!pdfJsPromise) {
+    pdfJsPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs").then((pdfjsLib) => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+      return pdfjsLib;
+    });
+  }
+
+  return pdfJsPromise;
+}
+
+function showBolViewerMessage(message) {
+  bolViewerMessage.textContent = message;
+  bolViewerMessage.hidden = false;
+}
+
+function isViewableBolDocument(document) {
+  const fileName = document.fileName || "";
+
+  return Boolean(document.fileUrl && (isImageFile(fileName) || isPdfFile(fileName)));
 }
 
 function isImageFile(fileName) {
@@ -1835,6 +1974,166 @@ async function requestNativeCustomerPermissions() {
   } catch (error) {
     console.warn("Native permission request failed:", error.message || error);
   }
+}
+
+function isPwaPushSupported() {
+  return (
+    !isNativeCustomerApp() &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window &&
+    "Notification" in window &&
+    window.isSecureContext
+  );
+}
+
+async function updatePwaPushButtonState() {
+  if (!pwaPushButton) return;
+
+  pwaPushButton.hidden = isNativeCustomerApp();
+  pwaPushButton.classList.remove("is-enabled", "is-unavailable");
+  pwaPushButton.disabled = false;
+
+  if (!isPwaPushSupported()) {
+    pwaPushButton.classList.add("is-unavailable");
+    pwaPushButton.disabled = true;
+    pwaPushButton.title = "Notifications unavailable";
+    pwaPushButton.setAttribute("aria-label", "Notifications unavailable");
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    pwaPushButton.classList.add("is-unavailable");
+    pwaPushButton.disabled = true;
+    pwaPushButton.title = "Notifications blocked";
+    pwaPushButton.setAttribute("aria-label", "Notifications blocked");
+    return;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+
+    if (subscription) {
+      pwaPushButton.classList.add("is-enabled");
+      pwaPushButton.title = "Notifications enabled";
+      pwaPushButton.setAttribute("aria-label", "Notifications enabled");
+      return;
+    }
+  } catch (error) {
+    console.warn("Web push status failed:", error.message || error);
+  }
+
+  pwaPushButton.title = "Enable notifications";
+  pwaPushButton.setAttribute("aria-label", "Enable notifications");
+}
+
+async function registerPwaPushNotifications() {
+  if (!isPwaPushSupported() || pwaPushRegistrationStarted || !customerPhoneLast7) return;
+
+  pwaPushRegistrationStarted = true;
+  pwaPushButton.disabled = true;
+
+  try {
+    const permission = await Notification.requestPermission();
+
+    if (permission !== "granted") {
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.register("./sw.js");
+    const publicKey = await getWebPushPublicKey();
+    const subscription =
+      (await registration.pushManager.getSubscription()) ||
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      }));
+
+    await saveWebPushSubscriptionToDatabase(subscription);
+  } finally {
+    pwaPushRegistrationStarted = false;
+    updatePwaPushButtonState();
+  }
+}
+
+async function getWebPushPublicKey() {
+  const { data, error } = await supabaseClient.functions.invoke("send-customer-push", {
+    body: { action: "web-push-config" },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.publicKey) {
+    throw new Error("Missing VAPID public key.");
+  }
+
+  return data.publicKey;
+}
+
+async function saveWebPushSubscriptionToDatabase(subscription) {
+  if (!subscription || !customerPhoneLast7) return;
+
+  await waitForDatabaseReady();
+
+  const subscriptionJson = subscription.toJSON();
+  const endpoint = subscriptionJson.endpoint || subscription.endpoint;
+
+  if (!endpoint) return;
+
+  const { error } = await supabaseClient.from(dbTables.pushTokens).upsert(
+    {
+      phone_last7: customerPhoneLast7,
+      token: endpoint,
+      platform: "web",
+      app_id: "semafor-pwa",
+      subscription: subscriptionJson,
+      user_agent: navigator.userAgent,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "token" },
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function syncExistingPwaPushSubscription() {
+  if (!isPwaPushSupported() || !customerPhoneLast7 || Notification.permission !== "granted") return;
+
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+
+  if (subscription) {
+    await saveWebPushSubscriptionToDatabase(subscription);
+  }
+}
+
+async function waitForDatabaseReady() {
+  const startedAt = Date.now();
+
+  while (!databaseReady && Date.now() - startedAt < 5000) {
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+
+  if (!databaseReady) {
+    throw new Error("Database is not ready.");
+  }
+}
+
+function urlBase64ToUint8Array(value) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const output = new Uint8Array(rawData.length);
+
+  for (let index = 0; index < rawData.length; index += 1) {
+    output[index] = rawData.charCodeAt(index);
+  }
+
+  return output;
 }
 
 function requestNativeCustomerPermissionsOnce() {

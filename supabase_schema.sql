@@ -82,8 +82,13 @@ create table if not exists public.semafor_push_tokens (
   token text not null unique,
   platform text not null,
   app_id text default 'com.semafor.customer',
+  subscription jsonb,
+  user_agent text,
   updated_at timestamptz not null default now()
 );
+
+alter table public.semafor_push_tokens add column if not exists subscription jsonb;
+alter table public.semafor_push_tokens add column if not exists user_agent text;
 
 alter table public.semafor_companies enable row level security;
 alter table public.semafor_vehicles enable row level security;

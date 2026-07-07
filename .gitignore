@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 www/
+build/
 
 # Local builds and generated artifacts
 *.apk
@@ -15,6 +16,8 @@ ios/App/App/config.xml
 ios/App/DerivedData/
 ios/App/Pods/
 ios/App/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
 
 # Private credentials
 .secrets/

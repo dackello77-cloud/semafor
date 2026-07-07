@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build:mobile": "node scripts/build-mobile.mjs",
+    "vapid:keys": "node scripts/generate-vapid-keys.mjs",
     "precap:sync": "npm run build:mobile",
     "cap:sync": "npx cap sync",
     "android": "npx cap open android",

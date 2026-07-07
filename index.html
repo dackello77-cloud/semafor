@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Semafor Portal</title>
+    <meta name="theme-color" content="#020718" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Semafor" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="stylesheet" href="css/customer.css" />
   </head>
@@ -122,9 +127,14 @@
       <section class="signal-screen" aria-label="Customer signal panel">
         <header class="customer-topbar">
           <button class="logout-btn" id="customer-logout" type="button">Logout</button>
-          <button class="camera-btn" id="camera-btn" type="button" aria-label="Open camera">
-            <span class="camera-icon" aria-hidden="true"></span>
-          </button>
+          <div class="customer-topbar-actions">
+            <button class="push-btn" id="pwa-push-btn" type="button" aria-label="Enable notifications" title="Enable notifications">
+              <span class="push-icon" aria-hidden="true"></span>
+            </button>
+            <button class="camera-btn" id="camera-btn" type="button" aria-label="Open camera">
+              <span class="camera-icon" aria-hidden="true"></span>
+            </button>
+          </div>
           <input id="camera-input" type="file" accept="image/*" capture="environment" hidden />
         </header>
 
@@ -279,15 +289,16 @@
             <div class="bol-viewer-tools">
               <button type="button" id="bol-zoom-out" aria-label="Zoom out">-</button>
               <button type="button" id="bol-zoom-in" aria-label="Zoom in">+</button>
-              <button type="button" id="bol-viewer-close" aria-label="Close image">x</button>
+              <button type="button" id="bol-viewer-close" aria-label="Close document">x</button>
             </div>
           </div>
           <div class="bol-viewer-stage">
-            <button class="bol-viewer-nav" type="button" id="bol-prev" aria-label="Previous image">&larr;</button>
+            <button class="bol-viewer-nav" type="button" id="bol-prev" aria-label="Previous document">&larr;</button>
             <div class="bol-viewer-image-wrap">
               <img id="bol-viewer-image" alt="BOL document" />
+              <div class="bol-viewer-message" id="bol-viewer-message" hidden></div>
             </div>
-            <button class="bol-viewer-nav" type="button" id="bol-next" aria-label="Next image">&rarr;</button>
+            <button class="bol-viewer-nav" type="button" id="bol-next" aria-label="Next document">&rarr;</button>
           </div>
         </div>
         <div class="bol-list" id="bol-list"></div>
