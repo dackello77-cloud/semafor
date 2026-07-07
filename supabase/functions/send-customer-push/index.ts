@@ -117,7 +117,9 @@ async function sendWebPush(subscription: WebPushSubscription, title: string, bod
     JSON.stringify({
       title,
       body,
-      url: "./index.html",
+      icon: "./assets/app-icon.png",
+      badge: "./assets/app-icon.png",
+      url: "./index.html?source=pwa",
     }),
     subscription,
   );

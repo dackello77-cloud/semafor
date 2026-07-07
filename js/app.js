@@ -135,8 +135,12 @@ let currentBolViewerCanZoom = false;
 let currentBolRenderRequestId = 0;
 let pdfJsPromise = null;
 let pwaPushRegistrationStarted = false;
+let pwaServiceWorkerRegistrationPromise = null;
 
 configureNativeCustomerApp();
+preparePwaServiceWorker()?.catch((error) => {
+  console.warn("Service worker registration failed:", error.message || error);
+});
 
 loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1986,6 +1990,39 @@ function isPwaPushSupported() {
   );
 }
 
+function isIosSafariLike() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isStandalonePwa() {
+  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+}
+
+function shouldShowInstallBeforePushState() {
+  return isIosSafariLike() && !isStandalonePwa();
+}
+
+function preparePwaServiceWorker() {
+  if (!("serviceWorker" in navigator) || !window.isSecureContext || isNativeCustomerApp()) return null;
+
+  if (!pwaServiceWorkerRegistrationPromise) {
+    pwaServiceWorkerRegistrationPromise = navigator.serviceWorker.register("./sw.js").catch((error) => {
+      pwaServiceWorkerRegistrationPromise = null;
+      throw error;
+    });
+  }
+
+  return pwaServiceWorkerRegistrationPromise;
+}
+
+async function getPwaServiceWorkerRegistration() {
+  const registration = await preparePwaServiceWorker();
+
+  if (!registration) return null;
+
+  return navigator.serviceWorker.ready;
+}
+
 async function updatePwaPushButtonState() {
   if (!pwaPushButton) return;
 
@@ -2001,6 +2038,14 @@ async function updatePwaPushButtonState() {
     return;
   }
 
+  if (shouldShowInstallBeforePushState()) {
+    pwaPushButton.classList.add("is-unavailable");
+    pwaPushButton.disabled = true;
+    pwaPushButton.title = "Add to Home Screen, then open from the app icon";
+    pwaPushButton.setAttribute("aria-label", "Add to Home Screen before enabling notifications");
+    return;
+  }
+
   if (Notification.permission === "denied") {
     pwaPushButton.classList.add("is-unavailable");
     pwaPushButton.disabled = true;
@@ -2010,7 +2055,7 @@ async function updatePwaPushButtonState() {
   }
 
   try {
-    const registration = await navigator.serviceWorker.getRegistration();
+    const registration = await getPwaServiceWorkerRegistration();
     const subscription = await registration?.pushManager.getSubscription();
 
     if (subscription) {
@@ -2030,17 +2075,27 @@ async function updatePwaPushButtonState() {
 async function registerPwaPushNotifications() {
   if (!isPwaPushSupported() || pwaPushRegistrationStarted || !customerPhoneLast7) return;
 
+  if (shouldShowInstallBeforePushState()) {
+    updatePwaPushButtonState();
+    return;
+  }
+
   pwaPushRegistrationStarted = true;
   pwaPushButton.disabled = true;
 
   try {
+    const registration = await getPwaServiceWorkerRegistration();
+
+    if (!registration) {
+      throw new Error("Service worker is not available.");
+    }
+
     const permission = await Notification.requestPermission();
 
     if (permission !== "granted") {
       return;
     }
 
-    const registration = await navigator.serviceWorker.register("./sw.js");
     const publicKey = await getWebPushPublicKey();
     const subscription =
       (await registration.pushManager.getSubscription()) ||
@@ -2103,7 +2158,7 @@ async function saveWebPushSubscriptionToDatabase(subscription) {
 async function syncExistingPwaPushSubscription() {
   if (!isPwaPushSupported() || !customerPhoneLast7 || Notification.permission !== "granted") return;
 
-  const registration = await navigator.serviceWorker.getRegistration();
+  const registration = await getPwaServiceWorkerRegistration();
   const subscription = await registration?.pushManager.getSubscription();
 
   if (subscription) {

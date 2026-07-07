@@ -1,7 +1,8 @@
-const CACHE_NAME = "semafor-pwa-v1";
+const CACHE_NAME = "semafor-pwa-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./index.html?source=pwa",
   "./customer.html",
   "./css/styles.css",
   "./css/customer.css",
@@ -54,8 +55,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "Semafor";
   const options = {
     body: payload.body || "New update",
-    badge: payload.badge || undefined,
-    icon: payload.icon || undefined,
+    badge: payload.badge || "./assets/app-icon.png",
+    icon: payload.icon || "./assets/app-icon.png",
     data: {
       url: payload.url || "./index.html",
     },
