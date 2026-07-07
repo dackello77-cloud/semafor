@@ -2132,7 +2132,7 @@ async function getWebPushPublicKey() {
   });
 
   if (error) {
-    throw error;
+    throw new Error((await getSupabaseFunctionErrorMessage(error)) || error.message || String(error));
   }
 
   if (!data?.publicKey) {
@@ -2140,6 +2140,23 @@ async function getWebPushPublicKey() {
   }
 
   return data.publicKey;
+}
+
+async function getSupabaseFunctionErrorMessage(error) {
+  const response = error?.context;
+
+  if (!response?.clone) return "";
+
+  try {
+    const body = await response.clone().json();
+    return body?.error || body?.message || "";
+  } catch {
+    try {
+      return await response.clone().text();
+    } catch {
+      return "";
+    }
+  }
 }
 
 async function saveWebPushSubscriptionToDatabase(subscription) {
