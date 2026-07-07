@@ -58,6 +58,7 @@ let customerTaskSubmitting = false;
 const notifiedBolRequestIds = new Set();
 const notifiedFinishedTaskIds = new Set();
 let pushNotificationsReady = false;
+const remotePushEnabled = false;
 
 const body = document.body;
 const loginScreen = document.querySelector("#portal-login");
@@ -1827,8 +1828,10 @@ async function requestNativeCustomerPermissions() {
 
   try {
     await plugins?.LocalNotifications?.requestPermissions?.();
-    await registerNativePushNotifications();
-    await plugins?.Camera?.requestPermissions?.();
+
+    if (remotePushEnabled) {
+      await registerNativePushNotifications();
+    }
   } catch (error) {
     console.warn("Native permission request failed:", error.message || error);
   }
@@ -1844,7 +1847,7 @@ function requestNativeCustomerPermissionsOnce() {
 async function registerNativePushNotifications() {
   const pushNotifications = window.Capacitor?.Plugins?.PushNotifications;
 
-  if (!pushNotifications || pushNotificationsReady || !customerPhoneLast7) return;
+  if (!remotePushEnabled || !pushNotifications || pushNotificationsReady || !customerPhoneLast7) return;
 
   pushNotificationsReady = true;
 
