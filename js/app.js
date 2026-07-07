@@ -58,7 +58,7 @@ let customerTaskSubmitting = false;
 const notifiedBolRequestIds = new Set();
 const notifiedFinishedTaskIds = new Set();
 let pushNotificationsReady = false;
-const remotePushEnabled = false;
+const remotePushEnabled = true;
 
 const body = document.body;
 const loginScreen = document.querySelector("#portal-login");
@@ -2257,7 +2257,9 @@ async function registerNativePushNotifications() {
 }
 
 async function savePushTokenToDatabase(token) {
-  if (!token || !databaseReady || !customerPhoneLast7) return;
+  if (!token || !customerPhoneLast7) return;
+
+  await waitForDatabaseReady();
 
   const platform = window.Capacitor?.getPlatform?.() || "web";
   const { error } = await supabaseClient.from(dbTables.pushTokens).upsert(
