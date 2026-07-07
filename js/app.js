@@ -180,6 +180,7 @@ customerLogout.addEventListener("click", logout);
 pwaPushButton.addEventListener("click", () => {
   registerPwaPushNotifications().catch((error) => {
     console.warn("Web push registration failed:", error.message || error);
+    window.alert(`Notifications failed: ${error.message || error}`);
     updatePwaPushButtonState();
   });
 });
@@ -2105,10 +2106,24 @@ async function registerPwaPushNotifications() {
       }));
 
     await saveWebPushSubscriptionToDatabase(subscription);
+    await showPwaPushSetupNotification(registration);
   } finally {
     pwaPushRegistrationStarted = false;
     updatePwaPushButtonState();
   }
+}
+
+async function showPwaPushSetupNotification(registration) {
+  if (!registration || Notification.permission !== "granted") return;
+
+  await registration.showNotification("Semafor notifications enabled", {
+    body: "You will receive BOL and task updates here.",
+    icon: "./assets/app-icon.png",
+    badge: "./assets/app-icon.png",
+    data: {
+      url: "./index.html?source=pwa",
+    },
+  });
 }
 
 async function getWebPushPublicKey() {
