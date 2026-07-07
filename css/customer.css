@@ -32,6 +32,27 @@ input {
   font: inherit;
 }
 
+button {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.customer-stage {
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.customer-stage.is-submitting button {
+  pointer-events: none;
+}
+
+.customer-stage.is-submitting .customer-topbar button,
+.customer-stage.is-submitting .back-btn {
+  pointer-events: auto;
+}
+
 .signal-screen {
   min-height: 100vh;
   min-height: 100dvh;

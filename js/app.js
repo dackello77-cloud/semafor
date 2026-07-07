@@ -52,6 +52,9 @@ let pendingBol = null;
 let pendingBolPurpose = "new-task";
 let cameraBolTaskMode = false;
 let customerAudioContext = null;
+let customerAudioUnlocked = false;
+let customerPermissionRequestStarted = false;
+let customerTaskSubmitting = false;
 const notifiedBolRequestIds = new Set();
 const notifiedFinishedTaskIds = new Set();
 let pushNotificationsReady = false;
@@ -193,20 +196,20 @@ bolCamera.addEventListener("click", () => bolCameraInput.click());
 bolDocument.addEventListener("click", () => bolDocumentInput.click());
 bolNone.addEventListener("click", () => {
   if (pendingBolPurpose === "active-task") {
-    completeActiveTaskBolRequest(null, "none");
+    runCustomerAction(() => completeActiveTaskBolRequest(null, "none"));
     return;
   }
 
   if (pendingBolPurpose === "camera-task") {
-    createCameraBolTask(null, "none");
+    runCustomerAction(() => createCameraBolTask(null, "none"));
     return;
   }
 
   pendingBol = { mode: "none", file: null };
   showRequestOptions(pendingRequestType);
 });
-bolCameraInput.addEventListener("change", () => handleBolFileChoice(bolCameraInput, "camera"));
-bolDocumentInput.addEventListener("change", () => handleBolFileChoice(bolDocumentInput, "file"));
+bolCameraInput.addEventListener("change", () => runCustomerAction(() => handleBolFileChoice(bolCameraInput, "camera")));
+bolDocumentInput.addEventListener("change", () => runCustomerAction(() => handleBolFileChoice(bolDocumentInput, "file")));
 customerBolRequestButton.addEventListener("click", showActiveTaskBolPrompt);
 customerDoneCheck.addEventListener("click", () => {
   localStorage.removeItem(storageKeys.customerTask);
@@ -229,9 +232,9 @@ requestGrid.addEventListener("click", (event) => {
 customerLldPanel.addEventListener("click", (event) => {
   const choice = event.target.closest("[data-lld-choice]");
 
-  if (!choice || !pendingTaskChoice) return;
+  if (!choice || !pendingTaskChoice || customerTaskSubmitting) return;
 
-  createCustomerTask(pendingTaskChoice.type, appendLldDescription(pendingTaskChoice.desc, choice.dataset.lldChoice));
+  runCustomerAction(() => createCustomerTask(pendingTaskChoice.type, appendLldDescription(pendingTaskChoice.desc, choice.dataset.lldChoice)));
 });
 
 tabs.forEach((tab) => {
@@ -690,7 +693,7 @@ function showCustomer(phoneLast7) {
   document.querySelector("#bol-code").textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
   timerCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
   loginError.textContent = "";
-  requestNativeCustomerPermissions();
+  requestNativeCustomerPermissionsOnce();
   restoreCustomerTask();
 }
 
@@ -1454,6 +1457,7 @@ function startCustomerRequest(type) {
 
 function showCustomerHome() {
   stopTimer();
+  setCustomerSubmitting(false);
   customerHomePanel.hidden = false;
   customerOptionsPanel.hidden = true;
   customerLldPanel.hidden = true;
@@ -1468,6 +1472,7 @@ function showCustomerHome() {
 }
 
 function showBolPrompt(type, purpose = "new-task") {
+  setCustomerSubmitting(false);
   pendingRequestType = type;
   pendingTaskChoice = null;
   pendingBol = null;
@@ -1510,6 +1515,7 @@ async function handleBolFileChoice(input, mode) {
 }
 
 function showRequestOptions(type) {
+  setCustomerSubmitting(false);
   pendingRequestType = type;
   pendingTaskChoice = null;
   customerHomePanel.hidden = true;
@@ -1537,6 +1543,7 @@ function showRequestOptions(type) {
 }
 
 function showLldOptions(type, desc) {
+  setCustomerSubmitting(false);
   pendingTaskChoice = { type, desc };
   customerHomePanel.hidden = true;
   customerOptionsPanel.hidden = true;
@@ -1632,69 +1639,79 @@ async function createCameraBolTask(file, mode) {
 }
 
 async function createCustomerTask(type, desc) {
+  if (customerTaskSubmitting) return;
+  setCustomerSubmitting(true);
+
   const activeTask = findActiveTaskForCustomer(customerPhoneLast7);
 
-  if (activeTask) {
-    if (activeTask.type === "BOL" && type !== "BOL") {
-      await updateCameraBolTaskToRequest(activeTask, type, desc);
+  try {
+    if (activeTask) {
+      if (activeTask.type === "BOL" && type !== "BOL") {
+        await updateCameraBolTaskToRequest(activeTask, type, desc);
+        return;
+      }
+
+      localStorage.setItem(storageKeys.customerTask, JSON.stringify({ id: activeTask.id, phoneLast7: customerPhoneLast7 }));
+      showTimer(activeTask);
       return;
     }
 
-    localStorage.setItem(storageKeys.customerTask, JSON.stringify({ id: activeTask.id, phoneLast7: customerPhoneLast7 }));
-    showTimer(activeTask);
-    return;
-  }
+    const vehicle = findVehicleForCustomer();
+    const bolRequired = Boolean(getActiveBolRequestForCustomer(customerPhoneLast7));
+    const bol = pendingBol || { mode: "none", file: null };
+    const bolDescription = bolRequired ? getBolDescription(bol) : "";
+    const task = {
+      id: crypto.randomUUID(),
+      phoneLast7: customerPhoneLast7,
+      company: vehicle?.company || "Customer",
+      vehicle: vehicle?.truckNumber || customerPhoneLast7,
+      driver: vehicle?.driverName || "",
+      type,
+      desc: bolDescription ? `${desc} | ${bolDescription}` : desc,
+      status: "Active",
+      originalType: type,
+      bolMode: bol.mode,
+      bolFileName: bol.file?.name || "",
+      bolFileUrl: "",
+      bolUploadedAt: "",
+      createdAt: new Date().toISOString(),
+    };
 
-  const vehicle = findVehicleForCustomer();
-  const bolRequired = Boolean(getActiveBolRequestForCustomer(customerPhoneLast7));
-  const bol = pendingBol || { mode: "none", file: null };
-  const bolDescription = bolRequired ? getBolDescription(bol) : "";
-  const task = {
-    id: crypto.randomUUID(),
-    phoneLast7: customerPhoneLast7,
-    company: vehicle?.company || "Customer",
-    vehicle: vehicle?.truckNumber || customerPhoneLast7,
-    driver: vehicle?.driverName || "",
-    type,
-    desc: bolDescription ? `${desc} | ${bolDescription}` : desc,
-    status: "Active",
-    originalType: type,
-    bolMode: bol.mode,
-    bolFileName: bol.file?.name || "",
-    bolFileUrl: "",
-    bolUploadedAt: "",
-    createdAt: new Date().toISOString(),
-  };
+    if (bol.file) {
+      const document = await uploadBolDocument(task, bol.file, bol.mode);
+      task.bolFileUrl = document?.fileUrl || "";
+      task.bolFileName = document?.fileName || bol.file.name;
+      task.bolUploadedAt = document?.createdAt || "";
 
-  if (bol.file) {
-    const document = await uploadBolDocument(task, bol.file, bol.mode);
-    task.bolFileUrl = document?.fileUrl || "";
-    task.bolFileName = document?.fileName || bol.file.name;
-    task.bolUploadedAt = document?.createdAt || "";
+      if (!task.bolFileUrl) {
+        bolMessage.textContent = "BOL file was saved locally, but upload failed. Try again after refreshing.";
+        return;
+      }
+    }
 
-    if (!task.bolFileUrl) {
-      bolMessage.textContent = "BOL file was saved locally, but upload failed. Try again after refreshing.";
+    tasks = [task, ...tasks.filter((item) => item.status !== "Done")];
+    writeStorage(storageKeys.tasks, tasks);
+    await saveTaskToDatabase(task);
+
+    if (bolRequired) {
+      await fulfillBolRequestsForPhone(task.phoneLast7);
+    }
+
+    localStorage.setItem(storageKeys.customerTask, JSON.stringify({ id: task.id, phoneLast7: customerPhoneLast7 }));
+    pendingTaskChoice = null;
+    renderTasks();
+    if (cameraBolTaskMode) {
+      showCustomerHome();
       return;
     }
+
+    showTimer(task);
+  } catch (error) {
+    console.warn("Customer task failed:", error.message || error);
+    bolMessage.textContent = "Request was not sent. Try again.";
+  } finally {
+    setCustomerSubmitting(false);
   }
-
-  tasks = [task, ...tasks.filter((item) => item.status !== "Done")];
-  writeStorage(storageKeys.tasks, tasks);
-  await saveTaskToDatabase(task);
-
-  if (bolRequired) {
-    await fulfillBolRequestsForPhone(task.phoneLast7);
-  }
-
-  localStorage.setItem(storageKeys.customerTask, JSON.stringify({ id: task.id, phoneLast7: customerPhoneLast7 }));
-  pendingTaskChoice = null;
-  renderTasks();
-  if (cameraBolTaskMode) {
-    showCustomerHome();
-    return;
-  }
-
-  showTimer(task);
 }
 
 function getBolDescription(bol) {
@@ -1741,8 +1758,12 @@ function updateCustomerBolRequestButton(task) {
 }
 
 function unlockCustomerAudio() {
-  getCustomerAudioContext()?.resume?.();
-  requestNativeCustomerPermissions();
+  if (!customerAudioUnlocked) {
+    customerAudioUnlocked = true;
+    getCustomerAudioContext()?.resume?.();
+  }
+
+  requestNativeCustomerPermissionsOnce();
 }
 
 function getCustomerAudioContext() {
@@ -1811,6 +1832,13 @@ async function requestNativeCustomerPermissions() {
   } catch (error) {
     console.warn("Native permission request failed:", error.message || error);
   }
+}
+
+function requestNativeCustomerPermissionsOnce() {
+  if (customerPermissionRequestStarted) return;
+
+  customerPermissionRequestStarted = true;
+  requestNativeCustomerPermissions();
 }
 
 async function registerNativePushNotifications() {
@@ -2013,6 +2041,31 @@ function stopTimer() {
     window.clearInterval(timerIntervalId);
     timerIntervalId = null;
   }
+}
+
+function setCustomerSubmitting(isSubmitting) {
+  customerTaskSubmitting = isSubmitting;
+  customerScreen.classList.toggle("is-submitting", isSubmitting);
+}
+
+async function runCustomerAction(action) {
+  if (customerTaskSubmitting) return;
+
+  try {
+    await action();
+  } catch (error) {
+    console.warn("Customer action failed:", error.message || error);
+    bolMessage.textContent = "Action failed. Try again.";
+    setCustomerSubmitting(false);
+  }
+}
+
+function isCustomerChoosingRequest() {
+  return (
+    !customerOptionsPanel.hidden ||
+    !customerLldPanel.hidden ||
+    (!customerBolPanel.hidden && pendingBolPurpose !== "active-task")
+  );
 }
 
 async function finishTask(taskId) {
@@ -2477,6 +2530,10 @@ function revealCustomerDoneIfFinished() {
 
 function syncCustomerTaskView() {
   if (customerScreen.hidden || !customerPhoneLast7) return;
+
+  if (customerTaskSubmitting || isCustomerChoosingRequest()) {
+    return;
+  }
 
   const activeRequest = getActiveBolRequestForCustomer(customerPhoneLast7);
   if (activeRequest) {
