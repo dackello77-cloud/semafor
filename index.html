@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Semafor Portal</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/customer.css" />
+  </head>
+  <body>
+    <main class="portal-login" id="portal-login">
+      <form class="portal-login-panel" id="portal-login-form">
+        <h1>Semafor login</h1>
+        <label>
+          Username or phone
+          <input id="login-identity" name="identity" type="text" autocomplete="username" placeholder="admin or phone number" required />
+        </label>
+        <label>
+          Password
+          <input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Only for admin" />
+        </label>
+        <p class="login-error" id="portal-login-error" role="alert"></p>
+        <p class="db-status" id="db-status">Checking database...</p>
+        <button class="primary-btn" type="submit">Login</button>
+      </form>
+    </main>
+
+    <div class="admin-shell app-screen" id="admin-screen" hidden>
+      <header class="topbar">
+        <button class="admin-logout" id="admin-logout" type="button">Logout</button>
+        <nav class="tabs" aria-label="Admin sections">
+          <button class="tab is-active" type="button" data-view="tasks">Active tasks</button>
+          <button class="tab" type="button" data-view="companies">Companies</button>
+          <button class="tab" type="button" data-view="vehicles">Vehicles</button>
+          <button class="tab" type="button" data-view="administrators">Administrators</button>
+        </nav>
+      </header>
+
+      <main class="workspace">
+        <section class="view is-active" id="tasks-view" aria-labelledby="tasks-title">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Vehicle</th>
+                  <th>Driver</th>
+                  <th>Type</th>
+                  <th>Desc</th>
+                  <th>BOL</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="tasks-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="companies-view" aria-labelledby="companies-title">
+          <div class="section-toolbar">
+            <h1 id="companies-title">Companies</h1>
+            <button class="primary-btn" type="button" data-open-modal="company-modal">Add company</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody id="companies-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="vehicles-view" aria-labelledby="vehicles-title">
+          <div class="section-toolbar">
+            <h1 id="vehicles-title">Vehicles</h1>
+            <button class="primary-btn" type="button" data-open-modal="vehicle-modal">Add vehicle</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Truck number</th>
+                  <th>Driver</th>
+                  <th>Phone</th>
+                  <th>BOL</th>
+                </tr>
+              </thead>
+              <tbody id="vehicles-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="administrators-view" aria-labelledby="administrators-title">
+          <div class="section-toolbar">
+            <h1 id="administrators-title">Administrators</h1>
+            <div class="toolbar-actions">
+              <button class="secondary-btn" type="button" data-open-modal="password-modal">Change password</button>
+              <button class="primary-btn" type="button" data-open-modal="admin-modal">Add administrator</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody id="administrators-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <main class="customer-stage app-screen" id="customer-screen" hidden>
+      <section class="signal-screen" aria-label="Customer signal panel">
+        <header class="customer-topbar">
+          <button class="logout-btn" id="customer-logout" type="button">Logout</button>
+          <button class="camera-btn" id="camera-btn" type="button" aria-label="Open camera">
+            <span class="camera-icon" aria-hidden="true"></span>
+          </button>
+          <input id="camera-input" type="file" accept="image/*" capture="environment" hidden />
+        </header>
+
+        <div class="customer-panel signal-board" id="customer-home-panel">
+          <button class="yellow-field" id="shift-button" type="button" aria-label="Open shift options"></button>
+          <button class="red-field" id="hours-button" type="button" aria-label="Open hours options">
+            <span class="customer-code" id="customer-code"></span>
+          </button>
+        </div>
+
+        <div class="customer-panel request-panel" id="customer-options-panel" hidden>
+          <button class="back-btn" id="options-back" type="button" aria-label="Back">&larr;</button>
+          <div class="request-grid" id="request-grid"></div>
+          <span class="customer-code muted-code" id="options-code"></span>
+        </div>
+
+        <div class="customer-panel lld-panel" id="customer-lld-panel" hidden>
+          <button class="back-btn" id="lld-back" type="button" aria-label="Back">&larr;</button>
+          <div class="lld-choice-grid">
+            <button class="lld-choice is-lld" type="button" data-lld-choice="LLD" aria-label="LLD"></button>
+            <button class="lld-choice is-empty" type="button" data-lld-choice="EMPTY" aria-label="EMPTY"></button>
+          </div>
+          <span class="customer-code muted-code" id="lld-code"></span>
+        </div>
+
+        <div class="customer-panel bol-panel" id="customer-bol-panel" hidden>
+          <button class="back-btn" id="bol-back" type="button" aria-label="Back">&larr;</button>
+          <div class="bol-choice-grid">
+            <button class="bol-choice" id="bol-camera" type="button">Camera</button>
+            <button class="bol-choice" id="bol-document" type="button">File</button>
+            <button class="bol-choice" id="bol-none" type="button">None</button>
+          </div>
+          <p class="bol-message" id="bol-message"></p>
+          <input id="bol-camera-input" type="file" accept="image/*" capture="environment" hidden />
+          <input id="bol-document-input" type="file" accept="image/*,application/pdf" hidden />
+          <span class="customer-code muted-code" id="bol-code"></span>
+        </div>
+
+        <div class="customer-panel timer-panel" id="customer-timer-panel" hidden>
+          <div class="timer-value" id="timer-value">00:00</div>
+          <button class="timer-bol-btn" id="customer-bol-request-button" type="button" hidden>BOL</button>
+          <button class="done-check" id="customer-done-check" type="button" aria-label="Done" hidden>&check;</button>
+          <span class="customer-code" id="timer-code"></span>
+        </div>
+      </section>
+    </main>
+
+    <div class="modal" id="company-modal" aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="company-modal-title">
+        <div class="modal-head">
+          <h2 id="company-modal-title">Create company</h2>
+          <button class="icon-btn" type="button" data-close-modal aria-label="Close">x</button>
+        </div>
+        <form id="company-form" class="form">
+          <label>
+            Company
+            <input id="company-name" name="company" type="text" autocomplete="organization" required />
+          </label>
+          <button class="primary-btn" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="vehicle-modal" aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="vehicle-modal-title">
+        <div class="modal-head">
+          <h2 id="vehicle-modal-title">Create vehicle</h2>
+          <button class="icon-btn" type="button" data-close-modal aria-label="Close">x</button>
+        </div>
+        <form id="vehicle-form" class="form">
+          <label>
+            Company
+            <select id="vehicle-company" name="company" required></select>
+          </label>
+          <label>
+            Truck number
+            <input id="truck-number" name="truckNumber" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            Driver name
+            <input id="driver-name" name="driverName" type="text" autocomplete="name" required />
+          </label>
+          <label>
+            Phone number
+            <input id="driver-phone" name="driverPhone" type="tel" autocomplete="tel" required />
+          </label>
+          <button class="primary-btn" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="edit-company-modal" aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="edit-company-title">
+        <div class="modal-head">
+          <h2 id="edit-company-title">Company properties</h2>
+          <button class="icon-btn" type="button" data-close-modal aria-label="Close">x</button>
+        </div>
+        <form id="edit-company-form" class="form">
+          <input id="edit-company-id" name="id" type="hidden" />
+          <input id="edit-company-original-name" name="originalName" type="hidden" />
+          <label>
+            Company
+            <input id="edit-company-name" name="company" type="text" autocomplete="organization" required />
+          </label>
+          <button class="primary-btn" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="edit-vehicle-modal" aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="edit-vehicle-title">
+        <div class="modal-head">
+          <h2 id="edit-vehicle-title">Vehicle properties</h2>
+          <button class="icon-btn" type="button" data-close-modal aria-label="Close">x</button>
+        </div>
+        <form id="edit-vehicle-form" class="form">
+          <input id="edit-vehicle-id" name="id" type="hidden" />
+          <input id="edit-vehicle-original-truck" name="originalTruckNumber" type="hidden" />
+          <label>
+            Company
+            <select id="edit-vehicle-company" name="company" required></select>
+          </label>
+          <label>
+            Truck number
+            <input id="edit-truck-number" name="truckNumber" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            Driver name
+            <input id="edit-driver-name" name="driverName" type="text" autocomplete="name" required />
+          </label>
+          <label>
+            Phone number
+            <input id="edit-driver-phone" name="driverPhone" type="tel" autocomplete="tel" required />
+          </label>
+          <button class="primary-btn" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="bol-modal" aria-hidden="true">
+      <div class="modal-panel wide-modal" role="dialog" aria-modal="true" aria-labelledby="bol-modal-title">
+        <div class="modal-head">
+          <h2 id="bol-modal-title">BOL documents</h2>
+          <button class="icon-btn" type="button" data-close-modal aria-label="Close">x</button>
+        </div>
+        <div class="bol-viewer" id="bol-viewer" hidden>
+          <div class="bol-viewer-head">
+            <div>
+              <strong id="bol-viewer-title"></strong>
+              <span id="bol-viewer-count"></span>
+            </div>
+            <div class="bol-viewer-tools">
+              <button type="button" id="bol-zoom-out" aria-label="Zoom out">-</button>
+              <button type="button" id="bol-zoom-in" aria-label="Zoom in">+</button>
+              <button type="button" id="bol-viewer-close" aria-label="Close image">x</button>
+            </div>
+          </div>
+          <div class="bol-viewer-stage">
+            <button class="bol-viewer-nav" type="button" id="bol-prev" aria-label="Previous image">&larr;</button>
+            <div class="bol-viewer-image-wrap">
+              <img id="bol-viewer-image" alt="BOL document" />
+            </div>
+            <button class="bol-viewer-nav" type="button" id="bol-next" aria-label="Next image">&rarr;</button>
+          </div>
+        </div>
+        <div class="bol-list" id="bol-list"></div>
+      </div>
+    </div>
+
+    <div class="modal" id="admin-modal" aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
+        <div class="modal-head">
+          <h2 id="admin-modal-title">Add administrator</h2>
+          <button class="icon-btn" type="button" data-close-modal aria-label="Close">x</button>
+        </div>
+        <form id="admin-form" class="form">
+          <label>
+            Username
+            <input id="new-admin-username" name="username" type="text" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input id="new-admin-password" name="password" type="password" autocomplete="new-password" required />
+          </label>
+          <button class="primary-btn" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="password-modal" aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+        <div class="modal-head">
+          <h2 id="password-modal-title">Change password</h2>
+          <button class="icon-btn" type="button" data-close-modal aria-label="Close">x</button>
+        </div>
+        <form id="password-form" class="form">
+          <label>
+            Username
+            <select id="password-admin-username" name="username" required></select>
+          </label>
+          <label>
+            New password
+            <input id="replacement-password" name="password" type="password" autocomplete="new-password" required />
+          </label>
+          <button class="primary-btn" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="context-menu" id="context-menu" hidden>
+      <button type="button" id="context-properties">Properties</button>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>

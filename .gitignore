@@ -1,0 +1,24 @@
+.DS_Store
+node_modules/
+www/
+
+# Local builds and generated artifacts
+*.apk
+*.aab
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/App/DerivedData/
+ios/App/Pods/
+ios/App/xcuserdata/
+
+# Private credentials
+.secrets/
+.env
+.env.*
+android/app/google-services.json
+*.p8
