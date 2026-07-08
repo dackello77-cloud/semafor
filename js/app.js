@@ -2696,7 +2696,7 @@ async function initializeDatabase() {
   const session = readSession();
 
   if (session?.role === "customer" && session.phoneLast7) {
-    restoreCustomerTask();
+    syncCustomerTaskView();
   }
 }
 
