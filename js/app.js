@@ -69,6 +69,7 @@ const notifiedBolRequestIds = new Set();
 const notifiedFinishedTaskIds = new Set();
 let pushNotificationsReady = false;
 const remotePushEnabled = true;
+const nativePushConfigured = false;
 
 const body = document.body;
 const loginScreen = document.querySelector("#portal-login");
@@ -2340,12 +2341,8 @@ function notifyCustomerTaskFinished(task) {
 }
 
 async function requestNativeCustomerPermissions() {
-  const plugins = window.Capacitor?.Plugins;
-
   try {
-    await plugins?.LocalNotifications?.requestPermissions?.();
-
-    if (remotePushEnabled) {
+    if (nativePushConfigured && remotePushEnabled) {
       await registerNativePushNotifications();
     }
   } catch (error) {
@@ -2605,27 +2602,48 @@ function requestNativeCustomerPermissionsOnce() {
 async function registerNativePushNotifications() {
   const pushNotifications = window.Capacitor?.Plugins?.PushNotifications;
 
-  if (!remotePushEnabled || !pushNotifications || pushNotificationsReady || !customerPhoneLast7) return;
+  if (!nativePushConfigured || !remotePushEnabled || !pushNotifications || pushNotificationsReady || !customerPhoneLast7) return;
 
   pushNotificationsReady = true;
 
-  await pushNotifications.addListener("registration", async (token) => {
-    await savePushTokenToDatabase(token.value);
-  });
+  try {
+    await createNativeNotificationChannel(pushNotifications);
 
-  await pushNotifications.addListener("registrationError", (error) => {
-    console.warn("Push registration failed:", error.error || error.message || error);
-  });
+    await pushNotifications.addListener("registration", async (token) => {
+      await savePushTokenToDatabase(token.value);
+    });
 
-  let permission = await pushNotifications.checkPermissions();
+    await pushNotifications.addListener("registrationError", (error) => {
+      console.warn("Push registration failed:", error.error || error.message || error);
+    });
 
-  if (permission.receive === "prompt") {
-    permission = await pushNotifications.requestPermissions();
+    let permission = await pushNotifications.checkPermissions();
+
+    if (permission.receive === "prompt") {
+      permission = await pushNotifications.requestPermissions();
+    }
+
+    if (permission.receive === "granted") {
+      await pushNotifications.register();
+    }
+  } catch (error) {
+    pushNotificationsReady = false;
+    console.warn("Push registration failed:", error.message || error);
   }
+}
 
-  if (permission.receive === "granted") {
-    await pushNotifications.register();
-  }
+async function createNativeNotificationChannel(pushNotifications) {
+  if (window.Capacitor?.getPlatform?.() !== "android" || !pushNotifications?.createChannel) return;
+
+  await pushNotifications.createChannel({
+    id: "semafor_customer",
+    name: "Semafor Customer",
+    description: "BOL and task updates",
+    importance: 5,
+    visibility: 1,
+    sound: "default",
+    vibration: true,
+  });
 }
 
 async function savePushTokenToDatabase(token) {
@@ -2656,12 +2674,17 @@ async function sendCustomerNotification(title, bodyText) {
   if (!localNotifications) return;
 
   try {
+    const permission = await localNotifications.checkPermissions?.();
+
+    if (permission?.display !== "granted") return;
+
     await localNotifications.schedule({
       notifications: [
         {
           id: Date.now() % 2147483647,
           title,
           body: bodyText,
+          channelId: "semafor_customer",
           schedule: { at: new Date(Date.now() + 250) },
           sound: "default",
         },
@@ -2743,7 +2766,7 @@ async function updateCameraBolTaskToRequest(task, type, desc) {
     ...task,
     type,
     desc,
-    originalType: task.originalType || "BOL",
+    originalType: "BOL",
     typeChangedFromBol: true,
   };
 
@@ -2831,21 +2854,31 @@ function isCustomerChoosingRequest() {
 }
 
 async function finishTask(taskId) {
-  const task = tasks.find((item) => item.id === taskId);
+  const task = await getLatestTaskBeforeFinish(taskId);
+  const typeChangedBeforeFinish = shouldWarnTypeChangedBeforeFinish(task);
 
   if (
-    shouldWarnTypeChangedBeforeFinish(task) &&
+    typeChangedBeforeFinish &&
     !window.confirm("Da li ste primetili da je TYPE promenjen u medjuvremenu?")
   ) {
     return;
   }
 
-  tasks = tasks.map((task) => (task.id === taskId ? { ...task, status: "Done", finishedAt: new Date().toISOString() } : task));
+  if (
+    !typeChangedBeforeFinish &&
+    shouldWarnBolArrivedBeforeFinish(task) &&
+    !window.confirm("BOL je stigao u medjuvremenu. Proverite pre zatvaranja taska.")
+  ) {
+    return;
+  }
+
+  const finishedAt = new Date().toISOString();
+  tasks = tasks.map((item) => (item.id === taskId ? { ...item, ...task, status: "Done", finishedAt } : item));
   writeStorage(storageKeys.tasks, tasks);
   typeChangedTaskIds.delete(taskId);
   writeStorage(storageKeys.typeChangedTasks, [...typeChangedTaskIds]);
   notifyCustomerByPush(task?.phoneLast7, "Task finished", "Your task has been closed.");
-  await finishTaskInDatabase(taskId);
+  await finishTaskInDatabase(taskId, finishedAt);
   renderTasks();
 
   const activeCustomerTask = readCustomerTask();
@@ -2855,21 +2888,85 @@ async function finishTask(taskId) {
   }
 }
 
+async function getLatestTaskBeforeFinish(taskId) {
+  let task = tasks.find((item) => item.id === taskId);
+
+  if (!databaseReady || !taskId) {
+    return task;
+  }
+
+  try {
+    const { data, error } = await supabaseClient.from(dbTables.tasks).select("*").eq("id", taskId).single();
+
+    if (error || !data) {
+      if (error) console.warn("Latest task lookup failed before finish:", error.message);
+      return task;
+    }
+
+    task = mapTaskFromDatabase(data);
+    tasks = tasks.map((item) => (item.id === taskId ? task : item));
+    writeStorage(storageKeys.tasks, tasks);
+    await refreshTaskBolDocumentsBeforeFinish(taskId);
+    return task;
+  } catch (error) {
+    console.warn("Latest task lookup failed before finish:", error.message || error);
+    return task;
+  }
+}
+
+async function refreshTaskBolDocumentsBeforeFinish(taskId) {
+  if (!databaseReady || !bolDatabaseReady || !taskId) return;
+
+  try {
+    const { data, error } = await supabaseClient
+      .from(dbTables.driverDocuments)
+      .select("*")
+      .eq("task_id", taskId)
+      .gte("created_at", new Date(getBolCutoffTime()).toISOString())
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.warn("Latest BOL document lookup failed before finish:", error.message);
+      return;
+    }
+
+    const latestDocuments = (data || []).map(mapDriverDocumentFromDatabase);
+    const latestIds = new Set(latestDocuments.map((document) => document.id));
+    driverDocuments = [
+      ...latestDocuments,
+      ...driverDocuments.filter((document) => document.taskId !== taskId || !latestIds.has(document.id)),
+    ];
+    writeStorage(storageKeys.driverDocuments, driverDocuments);
+  } catch (error) {
+    console.warn("Latest BOL document lookup failed before finish:", error.message || error);
+  }
+}
+
 function shouldWarnTypeChangedBeforeFinish(task) {
   if (!task) return false;
 
-  if (task.typeChangedFromBol || typeChangedTaskIds.has(task.id)) {
-    return true;
+  if (task.type === "BOL" || task.originalType !== "BOL") {
+    return false;
   }
 
-  const hasBolTrace =
+  return Boolean(task.typeChangedFromBol || typeChangedTaskIds.has(task.id));
+}
+
+function shouldWarnBolArrivedBeforeFinish(task) {
+  if (!task || task.type === "BOL") return false;
+
+  return hasBolTrace(task);
+}
+
+function hasBolTrace(task) {
+  return (
     task.bolMode !== "none" ||
     Boolean(task.bolFileUrl || task.bolFileName || task.bolUploadedAt) ||
+    getRecentBolDocumentsForTask(task.id).length > 0 ||
     String(task.desc || "")
       .split(/\s*[|/]\s*/)
-      .some((part) => part === "BOL" || part === "EMPTY");
-
-  return task.type !== "BOL" && hasBolTrace;
+      .some((part) => part === "BOL" || part === "EMPTY")
+  );
 }
 
 async function notifyCustomerByPush(phoneLast7, title, bodyText) {
@@ -3255,12 +3352,12 @@ async function fulfillBolRequestsInDatabase(requestIds, fulfilledAt) {
   }
 }
 
-async function finishTaskInDatabase(taskId) {
+async function finishTaskInDatabase(taskId, finishedAt = new Date().toISOString()) {
   if (!databaseReady) return;
 
   const { error } = await supabaseClient
     .from(dbTables.tasks)
-    .update({ status: "Done", finished_at: new Date().toISOString() })
+    .update({ status: "Done", finished_at: finishedAt })
     .eq("id", taskId);
 
   if (error) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "semafor-pwa-v5";
+const CACHE_NAME = "semafor-pwa-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,7 +6,7 @@ const APP_SHELL = [
   "./customer.html",
   "./css/styles.css",
   "./css/customer.css",
-  "./js/app.js",
+  "./js/app.js?v=20260708-bol-finish-check",
   "./js/supabase.js",
   "./manifest.webmanifest",
   "./assets/app-icon.png",
