@@ -2875,10 +2875,6 @@ async function loadFromDatabase() {
       tasks = localTasks;
     }
 
-    if (!driverDocuments.length && localDriverDocuments.length) {
-      driverDocuments = localDriverDocuments;
-    }
-
     if (!bolRequests.length && localBolRequests.length) {
       bolRequests = localBolRequests;
     }
