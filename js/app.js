@@ -902,7 +902,7 @@ function renderTasks() {
           <td class="properties-cell" data-properties-kind="vehicle" data-task-id="${escapeAttribute(task.id)}">${escapeHtml(task.vehicle || "")}</td>
           <td>${escapeHtml(task.driver || "")}</td>
           <td>${escapeHtml(task.type || "")}</td>
-          <td>${escapeHtml(task.desc || "")}</td>
+          <td>${escapeHtml(formatTaskDescriptionForAdmin(task))}</td>
           <td>
             <div class="bol-actions">
               <button
@@ -1994,6 +1994,110 @@ function getLocalTimeZoneLabel() {
   };
 
   return zoneMap[shortName] || shortName.replace(/^GMT/, "UTC");
+}
+
+function formatTaskDescriptionForAdmin(task) {
+  return convertLocalTimeDescriptionsToCentral(task.desc || "", task.createdAt);
+}
+
+function convertLocalTimeDescriptionsToCentral(desc, createdAt) {
+  return String(desc || "").replace(
+    /\b(1[0-2]|[1-9])\s*(AM|PM)\s+(ET|CT|MT|PT|EST|EDT|CST|CDT|MST|MDT|PST|PDT)\b/g,
+    (match, hour, meridiem, zone) => {
+      const sourceTimeZone = getTimeZoneFromLabel(zone);
+
+      if (!sourceTimeZone) {
+        return match;
+      }
+
+      const sourceDate = getSourceDateForSelectedTime(Number(hour), meridiem, sourceTimeZone, createdAt);
+      return formatCentralHour(sourceDate);
+    },
+  );
+}
+
+function getTimeZoneFromLabel(label) {
+  const zones = {
+    ET: "America/New_York",
+    EST: "America/New_York",
+    EDT: "America/New_York",
+    CT: "America/Chicago",
+    CST: "America/Chicago",
+    CDT: "America/Chicago",
+    MT: "America/Denver",
+    MST: "America/Denver",
+    MDT: "America/Denver",
+    PT: "America/Los_Angeles",
+    PST: "America/Los_Angeles",
+    PDT: "America/Los_Angeles",
+  };
+
+  return zones[label] || "";
+}
+
+function getSourceDateForSelectedTime(hour, meridiem, timeZone, createdAt) {
+  const baseDate = createdAt ? new Date(createdAt) : new Date();
+  const baseParts = getZonedDateParts(baseDate, timeZone);
+  const selectedHour = parseHourLabel(hour, meridiem);
+  const selectedMinutes = selectedHour * 60;
+  const baseMinutes = baseParts.hour * 60 + baseParts.minute + baseParts.second / 60;
+
+  if (selectedMinutes < baseMinutes) {
+    const nextDay = new Date(Date.UTC(baseParts.year, baseParts.month - 1, baseParts.day + 1));
+    const nextDayParts = getZonedDateParts(nextDay, "UTC");
+    return zonedTimeToDate(nextDayParts.year, nextDayParts.month, nextDayParts.day, selectedHour, timeZone);
+  }
+
+  return zonedTimeToDate(baseParts.year, baseParts.month, baseParts.day, selectedHour, timeZone);
+}
+
+function parseHourLabel(hour, meridiem) {
+  const normalizedHour = hour % 12;
+  return meridiem === "PM" ? normalizedHour + 12 : normalizedHour;
+}
+
+function zonedTimeToDate(year, month, day, hour, timeZone) {
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour));
+  const guessParts = getZonedDateParts(utcGuess, timeZone);
+  const desiredUtc = Date.UTC(year, month - 1, day, hour);
+  const guessAsUtc = Date.UTC(guessParts.year, guessParts.month - 1, guessParts.day, guessParts.hour, guessParts.minute, guessParts.second);
+
+  return new Date(utcGuess.getTime() + desiredUtc - guessAsUtc);
+}
+
+function getZonedDateParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const getPart = (type) => Number(parts.find((part) => part.type === type)?.value || 0);
+
+  return {
+    year: getPart("year"),
+    month: getPart("month"),
+    day: getPart("day"),
+    hour: getPart("hour") % 24,
+    minute: getPart("minute"),
+    second: getPart("second"),
+  };
+}
+
+function formatCentralHour(date) {
+  const label = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    hour: "numeric",
+    hour12: true,
+  })
+    .format(date)
+    .replace(/\s/g, "");
+
+  return `${label} CT`;
 }
 
 function formatHourLabel(hourValue) {
