@@ -1973,27 +1973,15 @@ function getHourOptionDescription(label) {
     return "NOW";
   }
 
-  const timeZone = getLocalTimeZoneLabel();
-  return timeZone ? `${label} ${timeZone}` : label;
-}
+  const match = label.match(/^(1[0-2]|[1-9])(AM|PM)$/);
+  const customerTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-function getLocalTimeZoneLabel() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZoneName: "short",
-  }).formatToParts(new Date());
-  const shortName = parts.find((part) => part.type === "timeZoneName")?.value || "";
-  const zoneMap = {
-    EST: "ET",
-    EDT: "ET",
-    CST: "CT",
-    CDT: "CT",
-    MST: "MT",
-    MDT: "MT",
-    PST: "PT",
-    PDT: "PT",
-  };
+  if (!match || !customerTimeZone) {
+    return label;
+  }
 
-  return zoneMap[shortName] || shortName.replace(/^GMT/, "UTC");
+  const sourceDate = getSourceDateForSelectedTime(Number(match[1]), match[2], customerTimeZone, new Date());
+  return formatCentralHour(sourceDate);
 }
 
 function formatTaskDescriptionForAdmin(task) {
