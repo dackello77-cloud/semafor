@@ -79,14 +79,11 @@ const optionsCode = document.querySelector("#options-code");
 const timerCode = document.querySelector("#timer-code");
 const customerHomePanel = document.querySelector("#customer-home-panel");
 const customerOptionsPanel = document.querySelector("#customer-options-panel");
-const customerLldPanel = document.querySelector("#customer-lld-panel");
 const customerBolPanel = document.querySelector("#customer-bol-panel");
 const customerTimerPanel = document.querySelector("#customer-timer-panel");
 const shiftButton = document.querySelector("#shift-button");
 const hoursButton = document.querySelector("#hours-button");
 const optionsBack = document.querySelector("#options-back");
-const lldBack = document.querySelector("#lld-back");
-const lldCode = document.querySelector("#lld-code");
 const bolBack = document.querySelector("#bol-back");
 const bolCamera = document.querySelector("#bol-camera");
 const bolDocument = document.querySelector("#bol-document");
@@ -201,7 +198,6 @@ cameraButton.addEventListener("click", () => {
 shiftButton.addEventListener("click", () => startCustomerRequest("SHIFT"));
 hoursButton.addEventListener("click", () => startCustomerRequest("HOURS"));
 optionsBack.addEventListener("click", showCustomerHome);
-lldBack.addEventListener("click", () => showRequestOptions(pendingRequestType));
 bolBack.addEventListener("click", () => {
   if (pendingBolPurpose === "active-task") {
     restoreCustomerTask();
@@ -244,15 +240,7 @@ requestGrid.addEventListener("click", (event) => {
     return;
   }
 
-  showLldOptions(option.dataset.type, option.dataset.desc);
-});
-
-customerLldPanel.addEventListener("click", (event) => {
-  const choice = event.target.closest("[data-lld-choice]");
-
-  if (!choice || !pendingTaskChoice || customerTaskSubmitting) return;
-
-  runCustomerAction(() => createCustomerTask(pendingTaskChoice.type, appendLldDescription(pendingTaskChoice.desc, choice.dataset.lldChoice)));
+  runCustomerAction(() => createCustomerTask(option.dataset.type, appendLldDescription(option.dataset.desc, "LLD")));
 });
 
 tabs.forEach((tab) => {
@@ -722,7 +710,6 @@ function showCustomer(phoneLast7) {
   customerPhoneLast7 = phoneLast7;
   customerCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
   optionsCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
-  lldCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
   document.querySelector("#bol-code").textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
   timerCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
   loginError.textContent = "";
@@ -1605,7 +1592,6 @@ function showCustomerHome() {
   setCustomerSubmitting(false);
   customerHomePanel.hidden = false;
   customerOptionsPanel.hidden = true;
-  customerLldPanel.hidden = true;
   customerBolPanel.hidden = true;
   customerTimerPanel.hidden = true;
   customerDoneCheck.hidden = true;
@@ -1627,7 +1613,6 @@ function showBolPrompt(type, purpose = "new-task") {
   bolMessage.textContent = "";
   customerHomePanel.hidden = true;
   customerOptionsPanel.hidden = true;
-  customerLldPanel.hidden = true;
   customerBolPanel.hidden = false;
   customerTimerPanel.hidden = true;
   customerDoneCheck.hidden = true;
@@ -1665,7 +1650,6 @@ function showRequestOptions(type) {
   pendingTaskChoice = null;
   customerHomePanel.hidden = true;
   customerOptionsPanel.hidden = false;
-  customerLldPanel.hidden = true;
   customerBolPanel.hidden = true;
   customerTimerPanel.hidden = true;
   customerDoneCheck.hidden = true;
@@ -1685,17 +1669,6 @@ function showRequestOptions(type) {
       `,
     )
     .join("");
-}
-
-function showLldOptions(type, desc) {
-  setCustomerSubmitting(false);
-  pendingTaskChoice = { type, desc };
-  customerHomePanel.hidden = true;
-  customerOptionsPanel.hidden = true;
-  customerLldPanel.hidden = false;
-  customerBolPanel.hidden = true;
-  customerTimerPanel.hidden = true;
-  customerDoneCheck.hidden = true;
 }
 
 function appendLldDescription(desc, lldChoice) {
@@ -1866,7 +1839,6 @@ function getBolDescription(bol) {
 function showTimer(task) {
   customerHomePanel.hidden = true;
   customerOptionsPanel.hidden = true;
-  customerLldPanel.hidden = true;
   customerBolPanel.hidden = true;
   customerTimerPanel.hidden = false;
   customerDoneCheck.hidden = task.status !== "Done";
@@ -2454,7 +2426,6 @@ async function runCustomerAction(action) {
 function isCustomerChoosingRequest() {
   return (
     !customerOptionsPanel.hidden ||
-    !customerLldPanel.hidden ||
     (!customerBolPanel.hidden && pendingBolPurpose !== "active-task")
   );
 }
