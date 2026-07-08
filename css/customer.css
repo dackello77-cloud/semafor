@@ -237,6 +237,7 @@ button {
 }
 
 .customer-code {
+  display: none;
   position: absolute;
   right: 8px;
   bottom: calc(6px + env(safe-area-inset-bottom));

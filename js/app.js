@@ -254,7 +254,7 @@ requestGrid.addEventListener("click", (event) => {
     return;
   }
 
-  runCustomerAction(() => createCustomerTask(option.dataset.type, appendLldDescription(option.dataset.desc, "LLD")));
+  runCustomerAction(() => createCustomerTask(option.dataset.type, option.dataset.desc));
 });
 
 tabs.forEach((tab) => {
@@ -724,10 +724,10 @@ function showCustomer(phoneLast7) {
   adminScreen.hidden = true;
   customerScreen.hidden = false;
   customerPhoneLast7 = phoneLast7;
-  customerCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
-  optionsCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
-  document.querySelector("#bol-code").textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
-  timerCode.textContent = `YR BOL MULTI DOC v37 - ${phoneLast7}`;
+  customerCode.textContent = "";
+  optionsCode.textContent = "";
+  document.querySelector("#bol-code").textContent = "";
+  timerCode.textContent = "";
   loginError.textContent = "";
   requestNativeCustomerPermissionsOnce();
   updatePwaPushButtonState();
@@ -1791,8 +1791,14 @@ function startCustomerRequest(type) {
   }
 
   const activeTask = findActiveTaskForCustomer(customerPhoneLast7);
+  const activeBolRequest = getActiveBolRequestForCustomer(customerPhoneLast7);
 
   if (activeTask) {
+    if (activeBolRequest) {
+      showBolPrompt(type);
+      return;
+    }
+
     if (activeTask.type === "BOL") {
       pendingRequestType = type;
       pendingTaskChoice = null;
@@ -1807,7 +1813,7 @@ function startCustomerRequest(type) {
     return;
   }
 
-  if (getActiveBolRequestForCustomer(customerPhoneLast7)) {
+  if (activeBolRequest) {
     showBolPrompt(type);
     return;
   }
@@ -1907,12 +1913,6 @@ function showRequestOptions(type) {
       `,
     )
     .join("");
-}
-
-function appendLldDescription(desc, lldChoice) {
-  const choice = lldChoice === "EMPTY" ? "EMPTY" : "LLD";
-
-  return desc ? `${desc} / ${choice}` : choice;
 }
 
 function buildRequestOptions(type) {
