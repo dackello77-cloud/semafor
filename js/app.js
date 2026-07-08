@@ -28,6 +28,7 @@ const targetBolImageSize = 300 * 1024;
 const maxBolImageDimension = 1600;
 const minBolImageQuality = 0.54;
 const customerStartupMinDelay = 2200;
+const centralTimeZone = "America/Chicago";
 
 const defaultAdministrators = [
   {
@@ -1957,8 +1958,8 @@ function getRequestOptionClass(option) {
 }
 
 function getNextHourLabels() {
-  const now = new Date();
-  const firstHour = now.getMinutes() > 0 || now.getSeconds() > 0 ? now.getHours() + 1 : now.getHours();
+  const now = getCentralTimeParts();
+  const firstHour = now.minute > 0 || now.second > 0 ? now.hour + 1 : now.hour;
   const labels = ["N"];
 
   for (let index = 0; index < 9; index += 1) {
@@ -1966,6 +1967,22 @@ function getNextHourLabels() {
   }
 
   return labels;
+}
+
+function getCentralTimeParts() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: centralTimeZone,
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  return {
+    hour: Number(parts.find((part) => part.type === "hour")?.value || 0) % 24,
+    minute: Number(parts.find((part) => part.type === "minute")?.value || 0),
+    second: Number(parts.find((part) => part.type === "second")?.value || 0),
+  };
 }
 
 function formatHourLabel(hourValue) {
