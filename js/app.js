@@ -1929,7 +1929,7 @@ function buildRequestOptions(type) {
   const hourOptions = getNextHourLabels().map((label) => ({
     label,
     type,
-    desc: label === "N" ? "NOW" : label,
+    desc: getHourOptionDescription(label),
   }));
 
   if (type === "SHIFT") {
@@ -1966,6 +1966,34 @@ function getNextHourLabels() {
   }
 
   return labels;
+}
+
+function getHourOptionDescription(label) {
+  if (label === "N") {
+    return "NOW";
+  }
+
+  const timeZone = getLocalTimeZoneLabel();
+  return timeZone ? `${label} ${timeZone}` : label;
+}
+
+function getLocalTimeZoneLabel() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZoneName: "short",
+  }).formatToParts(new Date());
+  const shortName = parts.find((part) => part.type === "timeZoneName")?.value || "";
+  const zoneMap = {
+    EST: "ET",
+    EDT: "ET",
+    CST: "CT",
+    CDT: "CT",
+    MST: "MT",
+    MDT: "MT",
+    PST: "PT",
+    PDT: "PT",
+  };
+
+  return zoneMap[shortName] || shortName.replace(/^GMT/, "UTC");
 }
 
 function formatHourLabel(hourValue) {
