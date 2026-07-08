@@ -24,6 +24,9 @@ const dbTables = {
 
 const bolBucket = "semafor-bol";
 const maxBolFileSize = 150 * 1024 * 1024;
+const targetBolImageSize = 300 * 1024;
+const maxBolImageDimension = 1600;
+const minBolImageQuality = 0.54;
 
 const defaultAdministrators = [
   {
@@ -133,6 +136,8 @@ let currentBolRenderRequestId = 0;
 let pdfJsPromise = null;
 let pwaPushRegistrationStarted = false;
 let pwaServiceWorkerRegistrationPromise = null;
+let customerTimerHistoryLocked = false;
+let customerTimerHistoryTaskId = "";
 
 configureNativeCustomerApp();
 preparePwaServiceWorker()?.catch((error) => {
@@ -174,6 +179,7 @@ loginForm.addEventListener("submit", (event) => {
 
 adminLogout.addEventListener("click", logout);
 customerLogout.addEventListener("click", logout);
+window.addEventListener("popstate", handleCustomerHistoryBack);
 pwaPushButton.addEventListener("click", () => {
   registerPwaPushNotifications().catch((error) => {
     console.warn("Web push registration failed:", error.message || error);
@@ -674,6 +680,7 @@ function restoreSession() {
 }
 
 function showLogin() {
+  unlockCustomerTimer();
   body.classList.remove("customer-mode");
   loginScreen.hidden = false;
   adminScreen.hidden = true;
@@ -722,12 +729,53 @@ function showCustomer(phoneLast7) {
 }
 
 function logout() {
+  if (isCustomerTimerLocked()) {
+    restoreCustomerTask();
+    return;
+  }
+
   localStorage.removeItem(storageKeys.session);
   localStorage.removeItem(storageKeys.customerTask);
   stopTimer();
   loginIdentity.value = "";
   loginPassword.value = "";
   showLogin();
+}
+
+function isCustomerTimerLocked() {
+  return body.classList.contains("customer-mode") && !customerTimerPanel.hidden && customerDoneCheck.hidden;
+}
+
+function lockCustomerTimer(task) {
+  customerLogout.disabled = true;
+  customerLogout.hidden = true;
+  customerTimerHistoryTaskId = task.id;
+
+  if (customerTimerHistoryLocked) return;
+
+  customerTimerHistoryLocked = true;
+  window.history.pushState({ semaforTimerLock: true, taskId: task.id }, "", window.location.href);
+}
+
+function unlockCustomerTimer() {
+  customerLogout.disabled = false;
+  customerLogout.hidden = false;
+  customerTimerHistoryLocked = false;
+  customerTimerHistoryTaskId = "";
+}
+
+function handleCustomerHistoryBack() {
+  if (!isCustomerTimerLocked()) return;
+
+  const activeTask = findActiveTaskForCustomer(customerPhoneLast7);
+  if (!activeTask || activeTask.status === "Done") {
+    unlockCustomerTimer();
+    return;
+  }
+
+  window.history.pushState({ semaforTimerLock: true, taskId: customerTimerHistoryTaskId || activeTask.id }, "", window.location.href);
+  localStorage.setItem(storageKeys.customerTask, JSON.stringify({ id: activeTask.id, phoneLast7: customerPhoneLast7 }));
+  showTimer(activeTask);
 }
 
 function saveSession(session) {
@@ -1458,16 +1506,144 @@ function getBolContentType(fileName) {
   return types[extension] || "application/octet-stream";
 }
 
+function shouldCompressBolImage(file) {
+  const type = (file.type || getBolContentType(file.name)).toLowerCase();
+
+  return type.startsWith("image/") && !["image/gif", "image/svg+xml"].includes(type);
+}
+
+async function prepareBolUploadFile(file) {
+  if (!shouldCompressBolImage(file)) {
+    return file;
+  }
+
+  try {
+    const compressed = await compressBolImage(file);
+    return compressed.size < file.size ? compressed : file;
+  } catch (error) {
+    console.warn("BOL image compression failed:", error.message || error);
+    return file;
+  }
+}
+
+async function compressBolImage(file) {
+  const imageSource = await loadImageBitmap(file);
+  const imageWidth = imageSource.naturalWidth || imageSource.width;
+  const imageHeight = imageSource.naturalHeight || imageSource.height;
+  const scale = Math.min(1, maxBolImageDimension / Math.max(imageWidth, imageHeight));
+  let width = Math.max(1, Math.round(imageWidth * scale));
+  let height = Math.max(1, Math.round(imageHeight * scale));
+  let fallbackBlob = null;
+
+  try {
+    for (let resizeAttempt = 0; resizeAttempt < 5; resizeAttempt += 1) {
+      const canvas = window.document.createElement("canvas");
+      const context = canvas.getContext("2d", { alpha: false });
+      canvas.width = width;
+      canvas.height = height;
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(imageSource, 0, 0, width, height);
+
+      let bestBlob = null;
+      let low = minBolImageQuality;
+      let high = 0.86;
+
+      for (let qualityAttempt = 0; qualityAttempt < 7; qualityAttempt += 1) {
+        const quality = (low + high) / 2;
+        const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+        bestBlob = blob;
+
+        if (blob.size > targetBolImageSize) {
+          high = quality;
+        } else {
+          low = quality;
+        }
+      }
+
+      if (bestBlob && bestBlob.size <= targetBolImageSize) {
+        return createCompressedBolFile(file, bestBlob);
+      }
+
+      width = Math.max(1, Math.round(width * 0.82));
+      height = Math.max(1, Math.round(height * 0.82));
+      fallbackBlob = bestBlob;
+    }
+
+    if (fallbackBlob) {
+      return createCompressedBolFile(file, fallbackBlob);
+    }
+  } finally {
+    imageSource.close?.();
+  }
+
+  return file;
+}
+
+async function loadImageBitmap(file) {
+  if (window.createImageBitmap) {
+    return window.createImageBitmap(file, { imageOrientation: "from-image" });
+  }
+
+  const image = await loadHtmlImage(file);
+  return image;
+}
+
+function loadHtmlImage(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Image could not be decoded."));
+    };
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("Image compression returned empty data."));
+        }
+      },
+      type,
+      quality,
+    );
+  });
+}
+
+function createCompressedBolFile(sourceFile, blob) {
+  return new File([blob], getCompressedBolFileName(sourceFile.name), {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+}
+
+function getCompressedBolFileName(fileName) {
+  const baseName = fileName.replace(/\.[^/.]+$/, "") || "bol";
+  return `${baseName}.jpg`;
+}
+
 async function uploadBolDocument(task, file, mode) {
   const createdAt = new Date().toISOString();
-  const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const uploadFile = await prepareBolUploadFile(file);
+  const safeFileName = uploadFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const filePath = `${task.phoneLast7}/${task.id}/${Date.now()}-${safeFileName}`;
   let fileUrl = "";
 
   try {
-    const { error } = await supabaseClient.storage.from(bolBucket).upload(filePath, file, {
+    const { error } = await supabaseClient.storage.from(bolBucket).upload(filePath, uploadFile, {
       cacheControl: "3600",
-      contentType: file.type || getBolContentType(file.name),
+      contentType: uploadFile.type || getBolContentType(uploadFile.name),
       upsert: true,
     });
 
@@ -1489,10 +1665,10 @@ async function uploadBolDocument(task, file, mode) {
     vehicle: task.vehicle,
     driver: task.driver,
     mode,
-    fileName: file.name,
+    fileName: uploadFile.name,
     filePath,
     fileUrl,
-    size: file.size,
+    size: uploadFile.size,
     createdAt,
   };
 
@@ -1589,6 +1765,7 @@ function startCustomerRequest(type) {
 
 function showCustomerHome() {
   stopTimer();
+  unlockCustomerTimer();
   setCustomerSubmitting(false);
   customerHomePanel.hidden = false;
   customerOptionsPanel.hidden = true;
@@ -1604,6 +1781,7 @@ function showCustomerHome() {
 
 function showBolPrompt(type, purpose = "new-task") {
   setCustomerSubmitting(false);
+  unlockCustomerTimer();
   pendingRequestType = type;
   pendingTaskChoice = null;
   pendingBol = null;
@@ -1646,6 +1824,7 @@ async function handleBolFileChoice(input, mode) {
 
 function showRequestOptions(type) {
   setCustomerSubmitting(false);
+  unlockCustomerTimer();
   pendingRequestType = type;
   pendingTaskChoice = null;
   customerHomePanel.hidden = true;
@@ -1843,6 +2022,11 @@ function showTimer(task) {
   customerTimerPanel.hidden = false;
   customerDoneCheck.hidden = task.status !== "Done";
   pendingBolPurpose = "new-task";
+  if (task.status === "Done") {
+    unlockCustomerTimer();
+  } else {
+    lockCustomerTimer(task);
+  }
   updateTimer(task);
   updateCustomerBolRequestButton(task);
   stopTimer();
@@ -1853,6 +2037,7 @@ function showTimer(task) {
       notifyCustomerTaskFinished(latestTask);
       customerDoneCheck.hidden = false;
       customerBolRequestButton.hidden = true;
+      unlockCustomerTimer();
       stopTimer();
       return;
     }
