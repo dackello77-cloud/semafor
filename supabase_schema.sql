@@ -37,6 +37,8 @@ create table if not exists public.semafor_tasks (
   vehicle text not null,
   driver text,
   type text not null,
+  original_type text,
+  type_changed_from_bol boolean not null default false,
   description text not null,
   status text not null default 'Active',
   bol_mode text default 'none',
@@ -51,6 +53,8 @@ alter table public.semafor_tasks add column if not exists bol_mode text default 
 alter table public.semafor_tasks add column if not exists bol_file_name text;
 alter table public.semafor_tasks add column if not exists bol_file_url text;
 alter table public.semafor_tasks add column if not exists bol_uploaded_at timestamptz;
+alter table public.semafor_tasks add column if not exists original_type text;
+alter table public.semafor_tasks add column if not exists type_changed_from_bol boolean not null default false;
 
 create table if not exists public.semafor_driver_documents (
   id uuid primary key default gen_random_uuid(),

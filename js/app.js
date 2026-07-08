@@ -2859,7 +2859,7 @@ async function finishTask(taskId) {
 
   if (
     typeChangedBeforeFinish &&
-    !window.confirm("Da li ste primetili da je TYPE promenjen u medjuvremenu?")
+    !window.confirm(`TYPE je u medjuvremenu promenjen iz BOL u ${task.type}. Proverite pre zatvaranja taska.`)
   ) {
     return;
   }
@@ -3311,10 +3311,14 @@ async function saveTaskToDatabase(task) {
   const { error } = await supabaseClient.from(dbTables.tasks).upsert(toDatabaseTask(task));
 
   if (error) {
-    const retry = await supabaseClient.from(dbTables.tasks).upsert(toDatabaseTask(task, false));
+    const retry = await supabaseClient.from(dbTables.tasks).upsert(toDatabaseTask(task, true, false));
 
     if (retry.error) {
-      console.warn("Task was saved locally, but not in Supabase:", retry.error.message);
+      const bolRetry = await supabaseClient.from(dbTables.tasks).upsert(toDatabaseTask(task, false, false));
+
+      if (bolRetry.error) {
+        console.warn("Task was saved locally, but not in Supabase:", bolRetry.error.message);
+      }
     }
   }
 }
@@ -3445,6 +3449,8 @@ function mapTaskFromDatabase(row) {
     vehicle: row.vehicle,
     driver: row.driver,
     type: row.type,
+    originalType: row.original_type || row.type,
+    typeChangedFromBol: Boolean(row.type_changed_from_bol),
     desc: row.description,
     status: row.status,
     bolMode: row.bol_mode || "none",
@@ -3512,7 +3518,7 @@ function toDatabaseAdministrator(admin) {
   };
 }
 
-function toDatabaseTask(task, includeBol = true) {
+function toDatabaseTask(task, includeBol = true, includeTypeMetadata = true) {
   const payload = {
     id: task.id,
     phone_last7: task.phoneLast7,
@@ -3531,6 +3537,11 @@ function toDatabaseTask(task, includeBol = true) {
     payload.bol_file_name = task.bolFileName || "";
     payload.bol_file_url = task.bolFileUrl || "";
     payload.bol_uploaded_at = task.bolUploadedAt || null;
+  }
+
+  if (includeTypeMetadata) {
+    payload.original_type = task.originalType || task.type;
+    payload.type_changed_from_bol = Boolean(task.typeChangedFromBol);
   }
 
   return payload;
