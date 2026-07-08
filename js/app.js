@@ -27,6 +27,7 @@ const maxBolFileSize = 150 * 1024 * 1024;
 const targetBolImageSize = 300 * 1024;
 const maxBolImageDimension = 1600;
 const minBolImageQuality = 0.54;
+const customerStartupMinDelay = 2200;
 
 const defaultAdministrators = [
   {
@@ -58,6 +59,9 @@ let customerAudioContext = null;
 let customerAudioUnlocked = false;
 let customerPermissionRequestStarted = false;
 let customerTaskSubmitting = false;
+let customerStartupReady = false;
+let customerStartupStartedAt = Date.now();
+let customerStartupTimerId = null;
 const notifiedBolRequestIds = new Set();
 const notifiedFinishedTaskIds = new Set();
 let pushNotificationsReady = false;
@@ -80,6 +84,7 @@ const cameraInput = document.querySelector("#camera-input");
 const customerCode = document.querySelector("#customer-code");
 const optionsCode = document.querySelector("#options-code");
 const timerCode = document.querySelector("#timer-code");
+const customerLoadingPanel = document.querySelector("#customer-loading-panel");
 const customerHomePanel = document.querySelector("#customer-home-panel");
 const customerOptionsPanel = document.querySelector("#customer-options-panel");
 const customerBolPanel = document.querySelector("#customer-bol-panel");
@@ -681,6 +686,7 @@ function restoreSession() {
 
 function showLogin() {
   unlockCustomerTimer();
+  hideCustomerLoading();
   body.classList.remove("customer-mode");
   loginScreen.hidden = false;
   adminScreen.hidden = true;
@@ -725,6 +731,12 @@ function showCustomer(phoneLast7) {
   syncExistingPwaPushSubscription().catch((error) => {
     console.warn("Web push sync failed:", error.message || error);
   });
+
+  if (!customerStartupReady) {
+    showCustomerLoading();
+    return;
+  }
+
   restoreCustomerTask();
 }
 
@@ -776,6 +788,42 @@ function handleCustomerHistoryBack() {
   window.history.pushState({ semaforTimerLock: true, taskId: customerTimerHistoryTaskId || activeTask.id }, "", window.location.href);
   localStorage.setItem(storageKeys.customerTask, JSON.stringify({ id: activeTask.id, phoneLast7: customerPhoneLast7 }));
   showTimer(activeTask);
+}
+
+function showCustomerLoading() {
+  stopTimer();
+  setCustomerSubmitting(false);
+  customerScreen.classList.add("is-loading");
+  customerLoadingPanel.hidden = false;
+  customerHomePanel.hidden = true;
+  customerOptionsPanel.hidden = true;
+  customerBolPanel.hidden = true;
+  customerTimerPanel.hidden = true;
+  customerDoneCheck.hidden = true;
+}
+
+function hideCustomerLoading() {
+  customerScreen.classList.remove("is-loading");
+  customerLoadingPanel.hidden = true;
+}
+
+function finishCustomerStartup() {
+  if (customerStartupReady || customerStartupTimerId) return;
+
+  const remainingDelay = Math.max(0, customerStartupMinDelay - (Date.now() - customerStartupStartedAt));
+  customerStartupTimerId = window.setTimeout(() => {
+    customerStartupReady = true;
+    customerStartupTimerId = null;
+
+    const session = readSession();
+    if (session?.role !== "customer" || customerScreen.hidden) {
+      hideCustomerLoading();
+      return;
+    }
+
+    hideCustomerLoading();
+    syncCustomerTaskView();
+  }, remainingDelay);
 }
 
 function saveSession(session) {
@@ -1734,6 +1782,11 @@ function getBolCutoffTime() {
 }
 
 function startCustomerRequest(type) {
+  if (!customerStartupReady) {
+    showCustomerLoading();
+    return;
+  }
+
   const activeTask = findActiveTaskForCustomer(customerPhoneLast7);
 
   if (activeTask) {
@@ -1766,6 +1819,7 @@ function startCustomerRequest(type) {
 function showCustomerHome() {
   stopTimer();
   unlockCustomerTimer();
+  hideCustomerLoading();
   setCustomerSubmitting(false);
   customerHomePanel.hidden = false;
   customerOptionsPanel.hidden = true;
@@ -1782,6 +1836,7 @@ function showCustomerHome() {
 function showBolPrompt(type, purpose = "new-task") {
   setCustomerSubmitting(false);
   unlockCustomerTimer();
+  hideCustomerLoading();
   pendingRequestType = type;
   pendingTaskChoice = null;
   pendingBol = null;
@@ -1825,6 +1880,7 @@ async function handleBolFileChoice(input, mode) {
 function showRequestOptions(type) {
   setCustomerSubmitting(false);
   unlockCustomerTimer();
+  hideCustomerLoading();
   pendingRequestType = type;
   pendingTaskChoice = null;
   customerHomePanel.hidden = true;
@@ -2016,6 +2072,7 @@ function getBolDescription(bol) {
 }
 
 function showTimer(task) {
+  hideCustomerLoading();
   customerHomePanel.hidden = true;
   customerOptionsPanel.hidden = true;
   customerBolPanel.hidden = true;
@@ -2683,6 +2740,7 @@ async function initializeDatabase() {
   if (!databaseReady) {
     console.warn("Supabase tables are not ready. The app is using localStorage fallback.");
     updateDatabaseStatus("offline");
+    finishCustomerStartup();
     return;
   }
 
@@ -2692,12 +2750,7 @@ async function initializeDatabase() {
   subscribeToDatabaseChanges();
   render();
   updateDatabaseStatus(bolDatabaseReady && bolRequestsDatabaseReady ? "online" : "partial");
-
-  const session = readSession();
-
-  if (session?.role === "customer" && session.phoneLast7) {
-    syncCustomerTaskView();
-  }
+  finishCustomerStartup();
 }
 
 function updateDatabaseStatus(status) {

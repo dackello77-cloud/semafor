@@ -48,6 +48,11 @@ button {
   pointer-events: none;
 }
 
+.customer-stage.is-loading .customer-topbar-actions button {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
 .customer-stage.is-submitting .customer-topbar button,
 .customer-stage.is-submitting .back-btn {
   pointer-events: auto;
@@ -84,6 +89,28 @@ button {
 
 .customer-panel[hidden] {
   display: none;
+}
+
+.customer-loading-panel {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  background: #101a2a;
+}
+
+.customer-loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 5px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: customer-loading-spin 0.8s linear infinite;
+}
+
+@keyframes customer-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .customer-topbar {
