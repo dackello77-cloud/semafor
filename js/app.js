@@ -28,6 +28,7 @@ const targetBolImageSize = 300 * 1024;
 const maxBolImageDimension = 1600;
 const minBolImageQuality = 0.54;
 const customerStartupMinDelay = 2200;
+const bolTypeChangeMarker = "[TYPE_CHANGED_FROM_BOL]";
 
 const defaultAdministrators = [
   {
@@ -1986,7 +1987,7 @@ function getHourOptionDescription(label) {
 }
 
 function formatTaskDescriptionForAdmin(task) {
-  return convertLocalTimeDescriptionsToCentral(task.desc || "", task.createdAt);
+  return convertLocalTimeDescriptionsToCentral(stripBolTypeChangeMarker(task.desc || ""), task.createdAt);
 }
 
 function convertLocalTimeDescriptionsToCentral(desc, createdAt) {
@@ -2765,7 +2766,7 @@ async function updateCameraBolTaskToRequest(task, type, desc) {
   const updatedTask = {
     ...task,
     type,
-    desc,
+    desc: appendBolTypeChangeMarker(desc),
     originalType: "BOL",
     typeChangedFromBol: true,
   };
@@ -2945,11 +2946,11 @@ async function refreshTaskBolDocumentsBeforeFinish(taskId) {
 function shouldWarnTypeChangedBeforeFinish(task) {
   if (!task) return false;
 
-  if (task.type === "BOL" || task.originalType !== "BOL") {
+  if (task.type === "BOL") {
     return false;
   }
 
-  return Boolean(task.typeChangedFromBol || typeChangedTaskIds.has(task.id));
+  return Boolean(task.originalType === "BOL" || task.typeChangedFromBol || typeChangedTaskIds.has(task.id) || hasBolTypeChangeMarker(task.desc));
 }
 
 function shouldWarnBolArrivedBeforeFinish(task) {
@@ -2967,6 +2968,20 @@ function hasBolTrace(task) {
       .split(/\s*[|/]\s*/)
       .some((part) => part === "BOL" || part === "EMPTY")
   );
+}
+
+function appendBolTypeChangeMarker(desc) {
+  const value = String(desc || "");
+
+  return hasBolTypeChangeMarker(value) ? value : `${value}${value ? " " : ""}${bolTypeChangeMarker}`;
+}
+
+function stripBolTypeChangeMarker(desc) {
+  return String(desc || "").replace(bolTypeChangeMarker, "").replace(/\s{2,}/g, " ").trim();
+}
+
+function hasBolTypeChangeMarker(desc) {
+  return String(desc || "").includes(bolTypeChangeMarker);
 }
 
 async function notifyCustomerByPush(phoneLast7, title, bodyText) {
@@ -3449,8 +3464,8 @@ function mapTaskFromDatabase(row) {
     vehicle: row.vehicle,
     driver: row.driver,
     type: row.type,
-    originalType: row.original_type || row.type,
-    typeChangedFromBol: Boolean(row.type_changed_from_bol),
+    originalType: row.original_type || (hasBolTypeChangeMarker(row.description) ? "BOL" : row.type),
+    typeChangedFromBol: Boolean(row.type_changed_from_bol) || hasBolTypeChangeMarker(row.description),
     desc: row.description,
     status: row.status,
     bolMode: row.bol_mode || "none",
