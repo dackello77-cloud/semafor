@@ -822,7 +822,7 @@ function finishCustomerStartup() {
     }
 
     hideCustomerLoading();
-    syncCustomerTaskView();
+    restoreCustomerTask();
   }, remainingDelay);
 }
 
