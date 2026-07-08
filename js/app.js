@@ -222,7 +222,7 @@ bolBack.addEventListener("click", () => {
 
   showCustomerHome();
 });
-bolCamera.addEventListener("click", () => bolCameraInput.click());
+bolCamera.addEventListener("click", () => openBolCamera());
 bolDocument.addEventListener("click", () => bolDocumentInput.click());
 bolNone.addEventListener("click", () => {
   if (pendingBolPurpose === "active-task") {
@@ -238,8 +238,8 @@ bolNone.addEventListener("click", () => {
   pendingBol = { mode: "none", file: null };
   showRequestOptions(pendingRequestType);
 });
-bolCameraInput.addEventListener("change", () => runCustomerAction(() => handleBolFileChoice(bolCameraInput, "camera")));
-bolDocumentInput.addEventListener("change", () => runCustomerAction(() => handleBolFileChoice(bolDocumentInput, "file")));
+bolCameraInput.addEventListener("change", () => runCustomerAction(() => handleBolFileInputChoice(bolCameraInput, "camera")));
+bolDocumentInput.addEventListener("change", () => runCustomerAction(() => handleBolFileInputChoice(bolDocumentInput, "file")));
 customerBolRequestButton.addEventListener("click", showActiveTaskBolPrompt);
 customerDoneCheck.addEventListener("click", () => {
   localStorage.removeItem(storageKeys.customerTask);
@@ -1862,14 +1862,65 @@ function showBolPrompt(type, purpose = "new-task") {
   customerDoneCheck.hidden = true;
 }
 
-async function handleBolFileChoice(input, mode) {
+async function openBolCamera() {
+  if (!isNativeCustomerApp()) {
+    bolCameraInput.click();
+    return;
+  }
+
+  const file = await getNativeCameraFile();
+
+  if (!file) {
+    bolCameraInput.click();
+    return;
+  }
+
+  runCustomerAction(() => handleBolFileChoice(file, "camera"));
+}
+
+async function getNativeCameraFile() {
+  const camera = window.Capacitor?.Plugins?.Camera;
+
+  if (!camera?.getPhoto) return null;
+
+  try {
+    await camera.requestPermissions?.({ permissions: ["camera", "photos"] });
+
+    const photo = await camera.getPhoto({
+      quality: 82,
+      allowEditing: false,
+      resultType: "uri",
+      source: "CAMERA",
+      saveToGallery: false,
+      correctOrientation: true,
+    });
+
+    if (!photo?.webPath) return null;
+
+    const response = await fetch(photo.webPath);
+    const blob = await response.blob();
+    return new File([blob], `bol-${Date.now()}.${photo.format || "jpg"}`, {
+      type: blob.type || `image/${photo.format || "jpeg"}`,
+      lastModified: Date.now(),
+    });
+  } catch (error) {
+    console.warn("Native camera failed:", error.message || error);
+    return null;
+  }
+}
+
+async function handleBolFileInputChoice(input, mode) {
   const file = input.files?.[0];
 
   if (!file) return;
 
+  await handleBolFileChoice(file, mode);
+  input.value = "";
+}
+
+async function handleBolFileChoice(file, mode) {
   if (file.size > maxBolFileSize) {
     bolMessage.textContent = "File is larger than 150MB.";
-    input.value = "";
     return;
   }
 
@@ -2950,7 +3001,13 @@ function shouldWarnTypeChangedBeforeFinish(task) {
     return false;
   }
 
-  return Boolean(task.originalType === "BOL" || task.typeChangedFromBol || typeChangedTaskIds.has(task.id) || hasBolTypeChangeMarker(task.desc));
+  return Boolean(
+    task.originalType === "BOL" ||
+      task.typeChangedFromBol ||
+      typeChangedTaskIds.has(task.id) ||
+      hasBolTypeChangeMarker(task.desc) ||
+      isLikelyBolTaskChangedToRequest(task),
+  );
 }
 
 function shouldWarnBolArrivedBeforeFinish(task) {
@@ -2968,6 +3025,16 @@ function hasBolTrace(task) {
       .split(/\s*[|/]\s*/)
       .some((part) => part === "BOL" || part === "EMPTY")
   );
+}
+
+function isLikelyBolTaskChangedToRequest(task) {
+  return hasBolTrace(task) && !hasBolResponseDescription(task.desc);
+}
+
+function hasBolResponseDescription(desc) {
+  return String(desc || "")
+    .split(/\s*[|/]\s*/)
+    .some((part) => part.trim() === "BOL" || part.trim() === "EMPTY");
 }
 
 function appendBolTypeChangeMarker(desc) {
