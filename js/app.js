@@ -62,6 +62,9 @@ let customerTaskSubmitting = false;
 let customerStartupReady = false;
 let customerStartupStartedAt = Date.now();
 let customerStartupTimerId = null;
+let customerTaskStatusPollId = "";
+let customerTaskStatusPollAt = 0;
+let customerTaskStatusPollInFlight = false;
 const notifiedBolRequestIds = new Set();
 const notifiedFinishedTaskIds = new Set();
 let pushNotificationsReady = false;
@@ -2091,17 +2094,52 @@ function showTimer(task) {
     const latestTask = tasks.find((item) => item.id === task.id) || readStorage(storageKeys.tasks).find((item) => item.id === task.id);
 
     if (latestTask?.status === "Done") {
-      notifyCustomerTaskFinished(latestTask);
-      customerDoneCheck.hidden = false;
-      customerBolRequestButton.hidden = true;
-      unlockCustomerTimer();
-      stopTimer();
+      completeCustomerTimerTask(latestTask);
       return;
     }
 
     updateTimer(latestTask || task);
     updateCustomerBolRequestButton(latestTask || task);
+    pollCustomerTimerTaskStatus(latestTask || task);
   }, 1000);
+}
+
+function completeCustomerTimerTask(task) {
+  notifyCustomerTaskFinished(task);
+  customerDoneCheck.hidden = false;
+  customerBolRequestButton.hidden = true;
+  unlockCustomerTimer();
+  stopTimer();
+}
+
+async function pollCustomerTimerTaskStatus(task) {
+  if (!databaseReady || !task?.id || task.status === "Done") return;
+
+  const now = Date.now();
+  if (customerTaskStatusPollInFlight) return;
+  if (customerTaskStatusPollId === task.id && now - customerTaskStatusPollAt < 3000) return;
+
+  customerTaskStatusPollId = task.id;
+  customerTaskStatusPollAt = now;
+  customerTaskStatusPollInFlight = true;
+
+  try {
+    const { data, error } = await supabaseClient.from(dbTables.tasks).select("*").eq("id", task.id).single();
+
+    if (error || !data) return;
+
+    const latestTask = mapTaskFromDatabase(data);
+    tasks = tasks.map((item) => (item.id === latestTask.id ? latestTask : item));
+    writeStorage(storageKeys.tasks, tasks);
+
+    if (latestTask.status === "Done") {
+      completeCustomerTimerTask(latestTask);
+    }
+  } catch (error) {
+    console.warn("Customer task status poll failed:", error.message || error);
+  } finally {
+    customerTaskStatusPollInFlight = false;
+  }
 }
 
 function updateCustomerBolRequestButton(task) {
@@ -3122,9 +3160,7 @@ function revealCustomerDoneIfFinished() {
   const task = tasks.find((item) => item.id === activeCustomerTask.id);
 
   if (task?.status === "Done") {
-    notifyCustomerTaskFinished(task);
-    customerDoneCheck.hidden = false;
-    stopTimer();
+    completeCustomerTimerTask(task);
   }
 }
 
